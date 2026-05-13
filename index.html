@@ -89,6 +89,15 @@ footer a:hover{color:#888}
 .celebration.winner .cel-title{font-size:1.4rem}
 .celebration.thanks .cel-inner{background:linear-gradient(135deg,#3b82f6,#8b5cf6,#ec4899)}
 
+/* persistent leading badge — visible only while Jen is #1 */
+.leading-badge{display:none;background:linear-gradient(135deg,#fbbf24,#f59e0b);color:#000;font-weight:900;letter-spacing:.6px;padding:6px 14px;border-radius:20px;font-size:.8rem;box-shadow:0 0 0 1px rgba(255,255,255,.25) inset,0 4px 14px rgba(251,191,36,.5);animation:goldPulse 1.8s ease-in-out infinite;align-items:center;gap:5px}
+.leading-badge.show{display:inline-flex}
+@keyframes goldPulse{
+  0%,100%{box-shadow:0 0 0 1px rgba(255,255,255,.25) inset,0 4px 14px rgba(251,191,36,.5);transform:scale(1)}
+  50%{box-shadow:0 0 0 1px rgba(255,255,255,.4) inset,0 6px 22px rgba(251,191,36,.85);transform:scale(1.04)}
+}
+body.is-leading{box-shadow:inset 0 0 0 3px rgba(251,191,36,.35)}
+
 /* ── Mobile (≤ 600px) ── */
 @media(max-width:600px){
   header{gap:10px}
@@ -135,6 +144,7 @@ footer a:hover{color:#888}
     <span class="cd-cell"><b id="cd-s">--</b><i>S</i></span>
   </div>
   <div class="status-block">
+    <span class="leading-badge" id="leading-badge">👑 LEADING</span>
     <span class="badge live" id="status-badge">● LIVE</span>
     <span class="refresh-note">refreshes every 10s</span>
   </div>
@@ -392,6 +402,24 @@ function updateUI(data) {
 // ── Celebrations ─────────────────────────────────────────────────────
 let lastSeenRank = null;
 let endCelebrated = sessionStorage.getItem('jen-end-celebrated') === '1';
+let leadingInterval = null;
+
+function startLeadingMode() {
+  document.getElementById('leading-badge').classList.add('show');
+  document.body.classList.add('is-leading');
+  if (leadingInterval) return;
+  // Gentle, recurring confetti every ~20s as long as Jen holds #1
+  leadingInterval = setInterval(() => {
+    fireBurst({ particleCount: 35, spread: 70, origin: { y: 0.55 },
+                colors: ['#fbbf24','#f59e0b','#ffffff','#fde68a'] });
+  }, 20000);
+}
+
+function stopLeadingMode() {
+  document.getElementById('leading-badge').classList.remove('show');
+  document.body.classList.remove('is-leading');
+  if (leadingInterval) { clearInterval(leadingInterval); leadingInterval = null; }
+}
 
 function fireBurst(opts) {
   if (!window.confetti) return;
@@ -451,6 +479,10 @@ function checkCelebrations(latest) {
     }
   }
   lastSeenRank = rank;
+
+  // Persistent leading mode — keep something celebratory going while she's #1
+  if (!eventOver && rank === 1) startLeadingMode();
+  else                          stopLeadingMode();
 
   // Event end: celebrate once per browser session
   if (eventOver && !endCelebrated) {
