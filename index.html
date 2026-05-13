@@ -14,12 +14,24 @@
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:'Segoe UI',system-ui,sans-serif;background:#0f1117;color:#e8eaf0;min-height:100vh}
 
-header{background:#8c1515;padding:16px 24px;padding-top:max(16px,env(safe-area-inset-top));padding-left:max(24px,env(safe-area-inset-left));padding-right:max(24px,env(safe-area-inset-right));display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+header{background:#8c1515;padding:16px 24px;padding-top:max(16px,env(safe-area-inset-top));padding-left:max(24px,env(safe-area-inset-left));padding-right:max(24px,env(safe-area-inset-right));display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+header .title-block{flex:1 1 auto;min-width:0}
 header h1{font-size:1.25rem;font-weight:700;letter-spacing:.4px}
 header .sub{font-size:.82rem;opacity:.75;margin-top:3px}
+header .status-block{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-left:auto}
+header .refresh-note{font-size:.78rem;color:rgba(255,255,255,.55)}
 .badge{background:rgba(255,255,255,.18);border-radius:20px;padding:6px 14px;font-size:.78rem;font-weight:600;letter-spacing:.5px;min-height:32px;display:inline-flex;align-items:center}
 .badge.live{animation:pulse 2s infinite}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
+
+/* countdown */
+.countdown{display:flex;gap:6px;align-items:center;background:rgba(0,0,0,.18);border-radius:10px;padding:6px 10px}
+.cd-cell{display:flex;align-items:baseline;gap:2px;font-family:'Archivo Black',system-ui,sans-serif}
+.cd-cell b{font-size:1.4rem;font-weight:900;color:#fff;letter-spacing:.5px;min-width:1.6ch;text-align:center;font-variant-numeric:tabular-nums}
+.cd-cell i{font-size:.7rem;font-style:normal;color:rgba(255,255,255,.65);font-weight:700;margin-right:4px}
+.cd-cell:last-child i{margin-right:0}
+.countdown.ended{background:rgba(0,0,0,.35)}
+.countdown.ended b{color:#fca5a5}
 
 main{padding:16px;padding-left:max(16px,env(safe-area-inset-left));padding-right:max(safe-area-inset-right,16px);max-width:1180px;margin:0 auto}
 
@@ -63,7 +75,13 @@ footer a:hover{color:#888}
 
 /* ── Mobile (≤ 600px) ── */
 @media(max-width:600px){
-  header h1{font-size:1.1rem}
+  header{gap:10px}
+  header h1{font-size:1.05rem}
+  header .sub{font-size:.75rem}
+  header .refresh-note{display:none}
+  .countdown{padding:5px 8px;gap:4px;order:3;width:100%;justify-content:center}
+  .cd-cell b{font-size:1.2rem}
+  .cd-cell i{font-size:.65rem}
   main{padding:12px;padding-left:max(12px,env(safe-area-inset-left));padding-right:max(12px,env(safe-area-inset-right))}
   .cards{grid-template-columns:repeat(2,1fr);gap:10px}
   .card{padding:14px 10px}
@@ -81,13 +99,19 @@ footer a:hover{color:#888}
 <body>
 
 <header>
-  <div>
+  <div class="title-block">
     <h1>Jen Varela — Race to #1</h1>
     <div class="sub">Stanford Day of Giving · May 13–14, 2026</div>
   </div>
-  <div style="margin-left:auto;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+  <div class="countdown" id="countdown" aria-label="Time remaining">
+    <span class="cd-cell"><b id="cd-d">--</b><i>D</i></span>
+    <span class="cd-cell"><b id="cd-h">--</b><i>H</i></span>
+    <span class="cd-cell"><b id="cd-m">--</b><i>M</i></span>
+    <span class="cd-cell"><b id="cd-s">--</b><i>S</i></span>
+  </div>
+  <div class="status-block">
     <span class="badge live" id="status-badge">● LIVE</span>
-    <span style="font-size:.78rem;color:rgba(255,255,255,.5)">refreshes every 60s</span>
+    <span class="refresh-note">refreshes every 60s</span>
   </div>
 </header>
 
@@ -343,7 +367,33 @@ async function load() {
   }
 }
 
-// Auto-reload every 60s
+// ── Countdown to event end: May 14, 2026 · 5:00 PM Pacific Time ─────
+const END_TIME = new Date('2026-05-15T00:00:00Z').getTime();  // 5pm PT = 00:00 UTC next day
+function tickCountdown() {
+  const ms = END_TIME - Date.now();
+  const el = document.getElementById('countdown');
+  if (ms <= 0) {
+    el.classList.add('ended');
+    document.getElementById('cd-d').textContent = '00';
+    document.getElementById('cd-h').textContent = '00';
+    document.getElementById('cd-m').textContent = '00';
+    document.getElementById('cd-s').textContent = '00';
+    return;
+  }
+  const d = Math.floor(ms / 86400000);
+  const h = Math.floor(ms % 86400000 / 3600000);
+  const m = Math.floor(ms %  3600000 /   60000);
+  const s = Math.floor(ms %    60000 /    1000);
+  const pad = n => String(n).padStart(2, '0');
+  document.getElementById('cd-d').textContent = pad(d);
+  document.getElementById('cd-h').textContent = pad(h);
+  document.getElementById('cd-m').textContent = pad(m);
+  document.getElementById('cd-s').textContent = pad(s);
+}
+tickCountdown();
+setInterval(tickCountdown, 1000);
+
+// Auto-reload data every 60s
 load();
 setInterval(load, 60 * 1000);
 </script>
