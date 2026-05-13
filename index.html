@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Jen vs #1 — Stanford Day of Giving</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI',system-ui,sans-serif;background:#0f1117;color:#e8eaf0;min-height:100vh}
+
+header{background:#8c1515;padding:16px 24px;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+header h1{font-size:1.25rem;font-weight:700;letter-spacing:.4px}
+header .sub{font-size:.82rem;opacity:.75;margin-top:3px}
+.badge{background:rgba(255,255,255,.18);border-radius:20px;padding:4px 12px;font-size:.78rem;font-weight:600;letter-spacing:.5px}
+.badge.live{animation:pulse 2s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
+
+main{padding:22px;max-width:1180px;margin:0 auto}
+
+/* stat cards */
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(175px,1fr));gap:14px;margin-bottom:24px}
+.card{background:#1a1d27;border-radius:12px;padding:18px 16px;text-align:center;border:1px solid #252839}
+.card .lbl{font-size:.7rem;text-transform:uppercase;letter-spacing:1.1px;color:#666;margin-bottom:8px}
+.card .val{font-size:2.2rem;font-weight:800;line-height:1;transition:color .4s}
+.card .hint{font-size:.75rem;color:#666;margin-top:6px;min-height:1em}
+.c-gap .val{color:#f59e0b}
+.c-jen .val{color:#60a5fa}
+.c-ldr .val{color:#f87171}
+.c-rank .val{color:#a78bfa}
+.c-rate .val{color:#34d399}
+.c-eta .val{color:#fb923c}
+
+/* charts */
+.charts{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-bottom:24px}
+@media(max-width:700px){.charts{grid-template-columns:1fr}}
+.chart-box{background:#1a1d27;border-radius:12px;padding:18px;border:1px solid #252839}
+.chart-box h2{font-size:.72rem;text-transform:uppercase;letter-spacing:1px;color:#555;margin-bottom:14px}
+
+/* leaderboard */
+.lb-box{background:#1a1d27;border-radius:12px;padding:18px;border:1px solid #252839;margin-bottom:24px}
+.lb-box h2{font-size:.72rem;text-transform:uppercase;letter-spacing:1px;color:#555;margin-bottom:12px}
+table{width:100%;border-collapse:collapse}
+th{font-size:.7rem;text-transform:uppercase;letter-spacing:.8px;color:#444;text-align:left;padding:5px 10px}
+td{padding:9px 10px;border-top:1px solid #1e2130;font-size:.88rem}
+tr.hl td{background:rgba(96,165,250,.07);color:#93c5fd;font-weight:600}
+.rb{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;font-size:.75rem;font-weight:700}
+.r1{background:#f59e0b;color:#000}.r2{background:#9ca3af;color:#000}.r3{background:#b45309;color:#fff}.rn{background:#252839;color:#777}
+
+/* footer */
+footer{text-align:center;padding:14px;font-size:.75rem;color:#444;border-top:1px solid #1e2130}
+footer a{color:#555;text-decoration:none}
+footer a:hover{color:#888}
+#last-fetch{color:#555}
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>Jen Varela — Race to #1</h1>
+    <div class="sub">Stanford Day of Giving · May 13–14, 2026</div>
+  </div>
+  <div style="margin-left:auto;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+    <span class="badge live" id="status-badge">● LIVE</span>
+    <span style="font-size:.78rem;color:rgba(255,255,255,.5)">refreshes every 5 min</span>
+  </div>
+</header>
+
+<main>
+
+  <div class="cards">
+    <div class="card c-gap">
+      <div class="lbl">Gap to #1</div>
+      <div class="val" id="c-gap">—</div>
+      <div class="hint" id="c-gap-hint">gifts behind</div>
+    </div>
+    <div class="card c-jen">
+      <div class="lbl">Jen's Gifts</div>
+      <div class="val" id="c-jen">—</div>
+      <div class="hint" id="c-jen-hint"></div>
+    </div>
+    <div class="card c-ldr">
+      <div class="lbl">#1 Gifts</div>
+      <div class="val" id="c-ldr">—</div>
+      <div class="hint" id="c-ldr-name">—</div>
+    </div>
+    <div class="card c-rank">
+      <div class="lbl">Jen's Rank</div>
+      <div class="val" id="c-rank">—</div>
+      <div class="hint">current position</div>
+    </div>
+    <div class="card c-rate">
+      <div class="lbl">Jen's Rate</div>
+      <div class="val" id="c-rate">—</div>
+      <div class="hint">gifts/hr · last 60 min</div>
+    </div>
+    <div class="card c-eta">
+      <div class="lbl">ETA to #1</div>
+      <div class="val" id="c-eta">—</div>
+      <div class="hint" id="c-eta-hint">at current net rate</div>
+    </div>
+  </div>
+
+  <div class="charts">
+    <div class="chart-box">
+      <h2>Gap over time — gifts behind #1</h2>
+      <canvas id="gapChart"></canvas>
+    </div>
+    <div class="chart-box">
+      <h2>Absolute gift counts</h2>
+      <canvas id="absChart"></canvas>
+    </div>
+  </div>
+
+  <div class="lb-box">
+    <h2>Live Top 10 Leaderboard</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Rank</th><th>Name</th><th>Campaign</th>
+          <th style="text-align:right">Gifts</th>
+          <th style="text-align:right">Raised</th>
+        </tr>
+      </thead>
+      <tbody id="lb-body"></tbody>
+    </table>
+  </div>
+
+</main>
+
+<footer>
+  Data updated every 5 min via GitHub Actions ·
+  Last fetch: <span id="last-fetch">—</span> ·
+  <a href="https://dayofgiving.stanford.edu/pages/challenges-and-leaderboards" target="_blank">Stanford Day of Giving ↗</a>
+</footer>
+
+<script>
+const TARGET = "Jen Varela";
+Chart.defaults.color = '#555';
+Chart.defaults.borderColor = '#1e2130';
+let gapChart, absChart;
+
+function fmtTime(iso) {
+  return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+function fmtDur(hrs) {
+  if (!isFinite(hrs) || hrs <= 0) return '—';
+  if (hrs < 1/60) return '< 1 min';
+  if (hrs < 1) return Math.round(hrs * 60) + ' min';
+  const h = Math.floor(hrs), m = Math.round((hrs - h) * 60);
+  return m > 0 ? `${h}h ${m}m` : `${h}h`;
+}
+function fmtMoney(n) {
+  return '$' + Number(n).toLocaleString('en', { maximumFractionDigits: 0 });
+}
+
+function buildCharts(history) {
+  const labels  = history.map(p => new Date(p.ts));
+  const gaps    = history.map(p => p.delta);
+  const jenVals = history.map(p => p.target_gifts);
+  const ldrVals = history.map(p => p.leader_gifts);
+  const sparse  = history.length > 80;
+
+  const xAxis = {
+    type: 'time',
+    time: { unit: 'minute', tooltipFormat: 'HH:mm', displayFormats: { minute: 'HH:mm' } },
+    ticks: { font: { size: 10 }, maxTicksLimit: 7, color: '#444' },
+    grid: { color: '#191c28' }
+  };
+  const yBase = { ticks: { font: { size: 10 }, color: '#444' }, grid: { color: '#191c28' } };
+
+  if (gapChart) gapChart.destroy();
+  gapChart = new Chart(document.getElementById('gapChart'), {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [{
+        label: 'Gap',
+        data: gaps,
+        borderColor: '#f59e0b',
+        backgroundColor: 'rgba(245,158,11,.08)',
+        fill: true,
+        tension: .35,
+        pointRadius: sparse ? 0 : 3,
+        pointHoverRadius: 5,
+        borderWidth: 2
+      }]
+    },
+    options: {
+      responsive: true,
+      animation: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: { label: c => ` Gap: ${c.raw} gifts` } }
+      },
+      scales: { x: xAxis, y: { ...yBase, min: 0, title: { display: true, text: 'gifts behind', font: { size: 10 }, color: '#444' } } }
+    }
+  });
+
+  if (absChart) absChart.destroy();
+  absChart = new Chart(document.getElementById('absChart'), {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        {
+          label: '#1 (' + (history[history.length-1]?.leader_name || '') + ')',
+          data: ldrVals,
+          borderColor: '#f87171',
+          backgroundColor: 'rgba(248,113,113,.04)',
+          fill: false, tension: .35,
+          pointRadius: sparse ? 0 : 3, pointHoverRadius: 5, borderWidth: 2
+        },
+        {
+          label: 'Jen',
+          data: jenVals,
+          borderColor: '#60a5fa',
+          backgroundColor: 'rgba(96,165,250,.08)',
+          fill: true, tension: .35,
+          pointRadius: sparse ? 0 : 3, pointHoverRadius: 5, borderWidth: 2
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      animation: false,
+      plugins: { legend: { labels: { font: { size: 10 }, boxWidth: 10, color: '#888' } } },
+      scales: { x: xAxis, y: { ...yBase, title: { display: true, text: 'total gifts', font: { size: 10 }, color: '#444' } } }
+    }
+  });
+}
+
+function updateUI(data) {
+  const h  = data.history || [];
+  const lb = data.leaderboard || [];
+  if (!h.length) return;
+
+  const latest = h[h.length - 1];
+
+  // Gap card
+  document.getElementById('c-gap').textContent = latest.delta;
+  document.getElementById('c-gap-hint').textContent =
+    latest.delta === 0 ? '🎉 Tied for #1!' :
+    latest.delta < 0  ? '🚀 In the LEAD!' :
+    `gifts behind ${latest.leader_name}`;
+
+  // Jen card
+  document.getElementById('c-jen').textContent = latest.target_gifts;
+
+  // Leader card
+  document.getElementById('c-ldr').textContent = latest.leader_gifts;
+  document.getElementById('c-ldr-name').textContent = latest.leader_name;
+
+  // Rank card
+  document.getElementById('c-rank').textContent = '#' + (latest.target_rank || '?');
+
+  // Rate & ETA — use all points within last 60 min
+  const cutoff = new Date(latest.ts).getTime() - 60 * 60 * 1000;
+  const window = h.filter(p => new Date(p.ts).getTime() >= cutoff);
+  if (window.length >= 2) {
+    const dt       = (new Date(window[window.length-1].ts) - new Date(window[0].ts)) / 3600000;
+    const jenRate  = dt > 0 ? (window[window.length-1].target_gifts - window[0].target_gifts) / dt : 0;
+    const ldrRate  = dt > 0 ? (window[window.length-1].leader_gifts - window[0].leader_gifts) / dt : 0;
+    const netRate  = jenRate - ldrRate;
+
+    document.getElementById('c-rate').textContent =
+      jenRate >= 0 ? '+' + jenRate.toFixed(1) : jenRate.toFixed(1);
+
+    if (latest.delta <= 0) {
+      document.getElementById('c-eta').textContent = '🏆';
+      document.getElementById('c-eta-hint').textContent = 'Jen is in the lead!';
+    } else if (netRate > 0) {
+      document.getElementById('c-eta').textContent = fmtDur(latest.delta / netRate);
+      document.getElementById('c-eta-hint').textContent =
+        `closing ${netRate.toFixed(1)} gifts/hr`;
+    } else {
+      document.getElementById('c-eta').textContent = '∞';
+      document.getElementById('c-eta-hint').textContent = 'gap growing';
+    }
+  }
+
+  // Leaderboard table
+  document.getElementById('lb-body').innerHTML = lb.map(p => {
+    const isJen = p.name === TARGET;
+    const rb = p.rank <= 3
+      ? `<span class="rb r${p.rank}">${p.rank}</span>`
+      : `<span class="rb rn">${p.rank}</span>`;
+    return `<tr class="${isJen ? 'hl' : ''}">
+      <td>${rb}</td>
+      <td>${p.name}${isJen ? ' ⭐' : ''}</td>
+      <td style="color:#444;font-size:.8rem">${p.campaign}</td>
+      <td style="text-align:right;font-weight:700">${p.gifts}</td>
+      <td style="text-align:right;color:#444">${fmtMoney(p.raised)}</td>
+    </tr>`;
+  }).join('');
+
+  // Last fetch time
+  document.getElementById('last-fetch').textContent = fmtTime(latest.ts);
+
+  // Charts
+  buildCharts(h);
+}
+
+async function load() {
+  try {
+    const r = await fetch('data.json?t=' + Date.now());
+    if (!r.ok) throw new Error(r.status);
+    updateUI(await r.json());
+    document.getElementById('status-badge').textContent = '● LIVE';
+    document.getElementById('status-badge').style.background = 'rgba(52,211,153,.25)';
+  } catch (e) {
+    console.error('fetch failed:', e);
+    document.getElementById('status-badge').textContent = '⚠ offline';
+    document.getElementById('status-badge').style.background = 'rgba(248,113,113,.25)';
+  }
+}
+
+// Auto-reload every 5 min (aligned with Actions schedule)
+load();
+setInterval(load, 5 * 60 * 1000);
+</script>
+</body>
+</html>
