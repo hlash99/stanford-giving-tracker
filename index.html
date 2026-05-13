@@ -111,7 +111,7 @@ footer a:hover{color:#888}
   </div>
   <div class="status-block">
     <span class="badge live" id="status-badge">● LIVE</span>
-    <span class="refresh-note">refreshes every 60s</span>
+    <span class="refresh-note">refreshes every 10s</span>
   </div>
 </header>
 
@@ -326,8 +326,16 @@ function updateUI(data) {
       document.getElementById('c-eta-hint').textContent =
         `closing ${netRate.toFixed(1)} gifts/hr`;
     } else {
-      document.getElementById('c-eta').textContent = '∞';
-      document.getElementById('c-eta-hint').textContent = 'gap growing';
+      const hopefuls = [
+        ['🎯', 'Rally time — every gift counts!'],
+        ['💪', 'You got this, Jen!'],
+        ['🚀', 'Time to surge ahead!'],
+        ['✨', 'One push away from the lead!'],
+        ['🔥', 'Keep going — momentum builds fast!'],
+      ];
+      const pick = hopefuls[Math.floor(Date.now() / 60000) % hopefuls.length];
+      document.getElementById('c-eta').textContent = pick[0];
+      document.getElementById('c-eta-hint').textContent = pick[1];
     }
   }
 
@@ -393,9 +401,9 @@ function tickCountdown() {
 tickCountdown();
 setInterval(tickCountdown, 1000);
 
-// Auto-reload data every 60s
+// Auto-reload data every 10s
 load();
-setInterval(load, 60 * 1000);
+setInterval(load, 10 * 1000);
 </script>
 </body>
 </html>
