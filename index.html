@@ -87,7 +87,7 @@ footer a:hover{color:#888}
   </div>
   <div style="margin-left:auto;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
     <span class="badge live" id="status-badge">● LIVE</span>
-    <span style="font-size:.78rem;color:rgba(255,255,255,.5)">refreshes every 5 min</span>
+    <span style="font-size:.78rem;color:rgba(255,255,255,.5)">refreshes every 60s</span>
   </div>
 </header>
 
@@ -343,9 +343,9 @@ async function load() {
   }
 }
 
-// Auto-reload every 5 min (aligned with Actions schedule)
+// Auto-reload every 60s
 load();
-setInterval(load, 5 * 60 * 1000);
+setInterval(load, 60 * 1000);
 </script>
 </body>
 </html>
