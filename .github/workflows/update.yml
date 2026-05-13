@@ -2,8 +2,8 @@ name: Update leaderboard data
 
 on:
   schedule:
-    - cron: '*/5 * * * *'   # every 5 minutes
-  workflow_dispatch:         # manual trigger from Actions tab
+    - cron: '*/5 * * * *'   # every 5 minutes (GitHub's minimum)
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -12,7 +12,15 @@ jobs:
   fetch:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout data branch
+        uses: actions/checkout@v4
+        with:
+          ref: data
+
+      - name: Checkout fetch.py from main
+        run: |
+          git fetch origin main --depth=1
+          git checkout origin/main -- fetch.py
 
       - uses: actions/setup-python@v5
         with:
@@ -24,11 +32,14 @@ jobs:
       - name: Fetch leaderboard
         run: python fetch.py
 
-      - name: Commit updated data
+      - name: Commit and push to data branch
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+          # Don't accidentally commit fetch.py (it's pulled from main just for the run)
+          git checkout -- fetch.py 2>/dev/null || true
+          git restore --staged fetch.py 2>/dev/null || true
+          rm -f fetch.py
           git add data.json
-          # Only commit if data.json actually changed
-          git diff --cached --quiet || git commit -m "chore: update leaderboard data [skip ci]"
-          git push
+          git diff --cached --quiet || git commit -m "data: ci backup update"
+          git push origin HEAD:data

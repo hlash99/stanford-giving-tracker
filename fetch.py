@@ -27,8 +27,11 @@ def main():
         print("Target or leader not found", file=sys.stderr)
         sys.exit(1)
 
-    with open(DATA_FILE) as f:
-        data = json.load(f)
+    if os.path.exists(DATA_FILE):
+        with open(DATA_FILE) as f:
+            data = json.load(f)
+    else:
+        data = {"history": []}
 
     # Deduplicate: skip if counts unchanged since last point
     history = data.get("history", [])
