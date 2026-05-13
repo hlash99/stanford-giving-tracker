@@ -2,7 +2,11 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#8c1515">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Jen vs #1">
 <title>Jen vs #1 — Stanford Day of Giving</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
@@ -10,21 +14,21 @@
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:'Segoe UI',system-ui,sans-serif;background:#0f1117;color:#e8eaf0;min-height:100vh}
 
-header{background:#8c1515;padding:16px 24px;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+header{background:#8c1515;padding:16px 24px;padding-top:max(16px,env(safe-area-inset-top));padding-left:max(24px,env(safe-area-inset-left));padding-right:max(24px,env(safe-area-inset-right));display:flex;align-items:center;gap:14px;flex-wrap:wrap}
 header h1{font-size:1.25rem;font-weight:700;letter-spacing:.4px}
 header .sub{font-size:.82rem;opacity:.75;margin-top:3px}
-.badge{background:rgba(255,255,255,.18);border-radius:20px;padding:4px 12px;font-size:.78rem;font-weight:600;letter-spacing:.5px}
+.badge{background:rgba(255,255,255,.18);border-radius:20px;padding:6px 14px;font-size:.78rem;font-weight:600;letter-spacing:.5px;min-height:32px;display:inline-flex;align-items:center}
 .badge.live{animation:pulse 2s infinite}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
 
-main{padding:22px;max-width:1180px;margin:0 auto}
+main{padding:16px;padding-left:max(16px,env(safe-area-inset-left));padding-right:max(safe-area-inset-right,16px);max-width:1180px;margin:0 auto}
 
 /* stat cards */
-.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(175px,1fr));gap:14px;margin-bottom:24px}
-.card{background:#1a1d27;border-radius:12px;padding:18px 16px;text-align:center;border:1px solid #252839}
-.card .lbl{font-size:.7rem;text-transform:uppercase;letter-spacing:1.1px;color:#666;margin-bottom:8px}
-.card .val{font-size:2.2rem;font-weight:800;line-height:1;transition:color .4s}
-.card .hint{font-size:.75rem;color:#666;margin-top:6px;min-height:1em}
+.cards{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:20px}
+.card{background:#1a1d27;border-radius:12px;padding:16px 12px;text-align:center;border:1px solid #252839}
+.card .lbl{font-size:.65rem;text-transform:uppercase;letter-spacing:1px;color:#666;margin-bottom:7px}
+.card .val{font-size:2rem;font-weight:800;line-height:1;transition:color .4s}
+.card .hint{font-size:.7rem;color:#666;margin-top:6px;min-height:1em;word-break:break-word}
 .c-gap .val{color:#f59e0b}
 .c-jen .val{color:#60a5fa}
 .c-ldr .val{color:#f87171}
@@ -33,26 +37,45 @@ main{padding:22px;max-width:1180px;margin:0 auto}
 .c-eta .val{color:#fb923c}
 
 /* charts */
-.charts{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-bottom:24px}
-@media(max-width:700px){.charts{grid-template-columns:1fr}}
-.chart-box{background:#1a1d27;border-radius:12px;padding:18px;border:1px solid #252839}
-.chart-box h2{font-size:.72rem;text-transform:uppercase;letter-spacing:1px;color:#555;margin-bottom:14px}
+.charts{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px}
+.chart-box{background:#1a1d27;border-radius:12px;padding:16px;border:1px solid #252839}
+.chart-box h2{font-size:.68rem;text-transform:uppercase;letter-spacing:1px;color:#555;margin-bottom:12px}
+.chart-box canvas{max-height:220px}
 
 /* leaderboard */
-.lb-box{background:#1a1d27;border-radius:12px;padding:18px;border:1px solid #252839;margin-bottom:24px}
-.lb-box h2{font-size:.72rem;text-transform:uppercase;letter-spacing:1px;color:#555;margin-bottom:12px}
-table{width:100%;border-collapse:collapse}
-th{font-size:.7rem;text-transform:uppercase;letter-spacing:.8px;color:#444;text-align:left;padding:5px 10px}
-td{padding:9px 10px;border-top:1px solid #1e2130;font-size:.88rem}
+.lb-box{background:#1a1d27;border-radius:12px;padding:16px;border:1px solid #252839;margin-bottom:20px}
+.lb-box h2{font-size:.68rem;text-transform:uppercase;letter-spacing:1px;color:#555;margin-bottom:12px}
+.table-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
+table{width:100%;border-collapse:collapse;min-width:380px}
+th{font-size:.68rem;text-transform:uppercase;letter-spacing:.8px;color:#444;text-align:left;padding:5px 8px;white-space:nowrap}
+td{padding:10px 8px;border-top:1px solid #1e2130;font-size:.85rem}
 tr.hl td{background:rgba(96,165,250,.07);color:#93c5fd;font-weight:600}
-.rb{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;font-size:.75rem;font-weight:700}
+.rb{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;font-size:.75rem;font-weight:700;flex-shrink:0}
 .r1{background:#f59e0b;color:#000}.r2{background:#9ca3af;color:#000}.r3{background:#b45309;color:#fff}.rn{background:#252839;color:#777}
+.col-campaign{display:table-cell}
+.col-raised{display:table-cell}
 
 /* footer */
-footer{text-align:center;padding:14px;font-size:.75rem;color:#444;border-top:1px solid #1e2130}
-footer a{color:#555;text-decoration:none}
+footer{text-align:center;padding:14px;padding-bottom:max(14px,env(safe-area-inset-bottom));font-size:.75rem;color:#444;border-top:1px solid #1e2130}
+footer a{color:#555;text-decoration:none;padding:8px 4px;display:inline-block}
 footer a:hover{color:#888}
 #last-fetch{color:#555}
+
+/* ── Mobile (≤ 600px) ── */
+@media(max-width:600px){
+  header h1{font-size:1.1rem}
+  main{padding:12px;padding-left:max(12px,env(safe-area-inset-left));padding-right:max(12px,env(safe-area-inset-right))}
+  .cards{grid-template-columns:repeat(2,1fr);gap:10px}
+  .card{padding:14px 10px}
+  .card .val{font-size:1.75rem}
+  .card .hint{font-size:.65rem}
+  .charts{grid-template-columns:1fr;gap:12px}
+  .chart-box canvas{max-height:180px}
+  .col-campaign{display:none}
+  .col-raised{display:none}
+  table{min-width:0}
+  td,th{padding:9px 6px}
+}
 </style>
 </head>
 <body>
@@ -116,16 +139,19 @@ footer a:hover{color:#888}
 
   <div class="lb-box">
     <h2>Live Top 10 Leaderboard</h2>
+    <div class="table-scroll">
     <table>
       <thead>
         <tr>
-          <th>Rank</th><th>Name</th><th>Campaign</th>
+          <th>Rank</th><th>Name</th>
+          <th class="col-campaign">Campaign</th>
           <th style="text-align:right">Gifts</th>
-          <th style="text-align:right">Raised</th>
+          <th class="col-raised" style="text-align:right">Raised</th>
         </tr>
       </thead>
       <tbody id="lb-body"></tbody>
     </table>
+    </div>
   </div>
 
 </main>
@@ -290,9 +316,9 @@ function updateUI(data) {
     return `<tr class="${isJen ? 'hl' : ''}">
       <td>${rb}</td>
       <td>${p.name}${isJen ? ' ⭐' : ''}</td>
-      <td style="color:#444;font-size:.8rem">${p.campaign}</td>
+      <td class="col-campaign" style="color:#444;font-size:.8rem">${p.campaign}</td>
       <td style="text-align:right;font-weight:700">${p.gifts}</td>
-      <td style="text-align:right;color:#444">${fmtMoney(p.raised)}</td>
+      <td class="col-raised" style="text-align:right;color:#444">${fmtMoney(p.raised)}</td>
     </tr>`;
   }).join('');
 
