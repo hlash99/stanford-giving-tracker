@@ -10,6 +10,7 @@
 <title>Jen vs #1 — Stanford Day of Giving</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.3/dist/confetti.browser.min.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:'Segoe UI',system-ui,sans-serif;background:#0f1117;color:#e8eaf0;min-height:100vh}
@@ -73,6 +74,21 @@ footer a{color:#555;text-decoration:none;padding:8px 4px;display:inline-block}
 footer a:hover{color:#888}
 #last-fetch{color:#555}
 
+/* celebration banner */
+.celebration{position:fixed;top:0;left:0;right:0;z-index:1000;pointer-events:none;display:flex;justify-content:center;padding:14px;padding-top:max(14px,env(safe-area-inset-top));transform:translateY(-150%);transition:transform .6s cubic-bezier(.34,1.56,.64,1)}
+.celebration.show{transform:translateY(0)}
+.cel-inner{pointer-events:auto;background:linear-gradient(135deg,#f59e0b,#dc2626);color:#fff;padding:14px 36px 14px 28px;border-radius:14px;box-shadow:0 14px 44px rgba(245,158,11,.5),0 0 0 1px rgba(255,255,255,.15) inset;text-align:center;max-width:520px;position:relative;animation:wiggle 1.2s ease-in-out 2}
+.cel-emoji{font-size:2rem;line-height:1;margin-bottom:4px}
+.cel-title{font-size:1.05rem;font-weight:900;letter-spacing:.6px;text-transform:uppercase}
+.cel-sub{font-size:.82rem;opacity:.95;margin-top:3px}
+.cel-close{position:absolute;top:6px;right:10px;background:none;border:none;color:#fff;font-size:1.3rem;cursor:pointer;opacity:.65;line-height:1;padding:4px 8px}
+.cel-close:hover{opacity:1}
+@keyframes wiggle{0%,100%{transform:rotate(0)}25%{transform:rotate(-1.2deg)}75%{transform:rotate(1.2deg)}}
+.celebration.winner .cel-inner{background:linear-gradient(135deg,#fbbf24 0%,#dc2626 50%,#7c3aed 100%);padding:18px 40px 18px 32px;animation:wiggle 1s ease-in-out infinite}
+.celebration.winner .cel-emoji{font-size:2.6rem}
+.celebration.winner .cel-title{font-size:1.4rem}
+.celebration.thanks .cel-inner{background:linear-gradient(135deg,#3b82f6,#8b5cf6,#ec4899)}
+
 /* ── Mobile (≤ 600px) ── */
 @media(max-width:600px){
   header{gap:10px}
@@ -97,6 +113,15 @@ footer a:hover{color:#888}
 </style>
 </head>
 <body>
+
+<div id="celebration" class="celebration" role="status" aria-live="polite">
+  <div class="cel-inner">
+    <button class="cel-close" onclick="document.getElementById('celebration').classList.remove('show')" aria-label="Dismiss">×</button>
+    <div class="cel-emoji" id="cel-emoji">🎉</div>
+    <div class="cel-title" id="cel-title"></div>
+    <div class="cel-sub" id="cel-sub"></div>
+  </div>
+</div>
 
 <header>
   <div class="title-block">
@@ -359,6 +384,81 @@ function updateUI(data) {
 
   // Charts
   buildCharts(h);
+
+  // Celebrations
+  checkCelebrations(latest);
+}
+
+// ── Celebrations ─────────────────────────────────────────────────────
+let lastSeenRank = null;
+let endCelebrated = sessionStorage.getItem('jen-end-celebrated') === '1';
+
+function fireBurst(opts) {
+  if (!window.confetti) return;
+  confetti({ particleCount: 80, spread: 70, origin: { y: 0.6 }, ...opts });
+}
+
+function showBanner(emoji, title, sub, mode, durationMs) {
+  const el = document.getElementById('celebration');
+  document.getElementById('cel-emoji').textContent = emoji;
+  document.getElementById('cel-title').textContent = title;
+  document.getElementById('cel-sub').textContent   = sub;
+  el.className = 'celebration show' + (mode ? ' ' + mode : '');
+  if (durationMs > 0) setTimeout(() => el.classList.remove('show'), durationMs);
+}
+
+function celebrateLeadGrab() {
+  showBanner('🎉', 'JEN TOOK #1!', 'She just pulled into the lead!', '', 10000);
+  fireBurst({ particleCount: 150, spread: 100 });
+  setTimeout(() => fireBurst({ particleCount: 80, angle: 60,  spread: 60, origin: { x: 0, y: 0.7 } }), 250);
+  setTimeout(() => fireBurst({ particleCount: 80, angle: 120, spread: 60, origin: { x: 1, y: 0.7 } }), 500);
+}
+
+function celebrateWin() {
+  showBanner('🏆', 'JEN WINS #1!', 'Stanford Day of Giving champion!', 'winner', 0);
+  const end = Date.now() + 12000;
+  (function frame() {
+    fireBurst({ particleCount: 6, angle: 60,  spread: 60, origin: { x: 0, y: 0.7 },
+                colors: ['#fbbf24','#dc2626','#7c3aed','#f59e0b','#ec4899'] });
+    fireBurst({ particleCount: 6, angle: 120, spread: 60, origin: { x: 1, y: 0.7 },
+                colors: ['#fbbf24','#dc2626','#7c3aed','#f59e0b','#ec4899'] });
+    if (Date.now() < end) requestAnimationFrame(frame);
+  })();
+  setTimeout(() => fireBurst({ particleCount: 200, spread: 130, origin: { y: 0.4 } }), 600);
+}
+
+function celebrateParticipation(finalRank, finalGifts) {
+  showBanner('💙',
+    'THANK YOU, TEAM JEN!',
+    `Finished #${finalRank} with ${finalGifts} gifts — every one made a difference.`,
+    'thanks', 0);
+  const colors = ['#3b82f6','#8b5cf6','#ec4899','#f59e0b','#60a5fa'];
+  fireBurst({ particleCount: 120, spread: 110, colors });
+  setTimeout(() => fireBurst({ particleCount: 100, angle: 60,  spread: 70, origin: { x: 0, y: 0.7 }, colors }), 400);
+  setTimeout(() => fireBurst({ particleCount: 100, angle: 120, spread: 70, origin: { x: 1, y: 0.7 }, colors }), 800);
+}
+
+function checkCelebrations(latest) {
+  const rank      = latest.target_rank;
+  const eventOver = Date.now() >= END_TIME;
+
+  // Lead grab: rank flipped from non-#1 → #1 (live, during the event)
+  if (!eventOver && rank === 1 && lastSeenRank !== null && lastSeenRank !== 1) {
+    const key = 'jen-lead-' + latest.ts.slice(0, 16); // dedupe within same data point
+    if (!sessionStorage.getItem(key)) {
+      sessionStorage.setItem(key, '1');
+      celebrateLeadGrab();
+    }
+  }
+  lastSeenRank = rank;
+
+  // Event end: celebrate once per browser session
+  if (eventOver && !endCelebrated) {
+    endCelebrated = true;
+    sessionStorage.setItem('jen-end-celebrated', '1');
+    if (rank === 1) celebrateWin();
+    else            celebrateParticipation(rank, latest.target_gifts);
+  }
 }
 
 async function load() {
