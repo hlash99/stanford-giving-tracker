@@ -40,7 +40,9 @@ main{padding:16px;padding-left:max(16px,env(safe-area-inset-left));padding-right
 .cards{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:20px}
 .card{background:#1a1d27;border-radius:12px;padding:16px 12px;text-align:center;border:1px solid #252839}
 .card .lbl{font-size:.65rem;text-transform:uppercase;letter-spacing:1px;color:#666;margin-bottom:7px}
-.card .val{font-size:2rem;font-weight:800;line-height:1;transition:color .4s}
+.card .val{font-size:2rem;font-weight:800;line-height:1;transition:color .4s;white-space:nowrap}
+.val-sep{font-size:1.4rem;font-weight:600;color:#3a3d4a;margin:0 .12em;vertical-align:.05em}
+.val-2{font-size:1.45rem;font-weight:800;opacity:.55;vertical-align:.07em}
 .card .hint{font-size:.7rem;color:#666;margin-top:6px;min-height:1em;word-break:break-word}
 .c-gap .val{color:#f59e0b}
 .c-jen .val{color:#60a5fa}
@@ -111,6 +113,8 @@ body.is-leading{box-shadow:inset 0 0 0 3px rgba(251,191,36,.35)}
   .cards{grid-template-columns:repeat(2,1fr);gap:10px}
   .card{padding:14px 10px}
   .card .val{font-size:1.75rem}
+  .val-sep{font-size:1.2rem}
+  .val-2{font-size:1.25rem}
   .card .hint{font-size:.65rem}
   .charts{grid-template-columns:1fr;gap:12px}
   .chart-box canvas{max-height:180px}
@@ -154,8 +158,8 @@ body.is-leading{box-shadow:inset 0 0 0 3px rgba(251,191,36,.35)}
 
   <div class="cards">
     <div class="card c-gap">
-      <div class="lbl">Gap to #1</div>
-      <div class="val" id="c-gap">—</div>
+      <div class="lbl">Gap to #1 / #2</div>
+      <div class="val"><span id="c-gap">—</span><span class="val-sep"> / </span><span class="val-2" id="c-gap-2">—</span></div>
       <div class="hint" id="c-gap-hint">gifts behind</div>
     </div>
     <div class="card c-jen">
@@ -179,8 +183,8 @@ body.is-leading{box-shadow:inset 0 0 0 3px rgba(251,191,36,.35)}
       <div class="hint">gifts/hr · last 60 min</div>
     </div>
     <div class="card c-eta">
-      <div class="lbl">ETA to #1</div>
-      <div class="val" id="c-eta">—</div>
+      <div class="lbl">ETA to #1 / #2</div>
+      <div class="val"><span id="c-eta">—</span><span class="val-sep"> / </span><span class="val-2" id="c-eta-2">—</span></div>
       <div class="hint" id="c-eta-hint">at current net rate</div>
     </div>
   </div>
@@ -357,12 +361,22 @@ function updateUI(data) {
 
   const latest = h[h.length - 1];
 
-  // Gap card
+  // Gap card — to #1
   document.getElementById('c-gap').textContent = latest.delta;
   document.getElementById('c-gap-hint').textContent =
     latest.delta === 0 ? '🎉 Tied for #1!' :
     latest.delta < 0  ? '🚀 In the LEAD!' :
     `gifts behind ${latest.leader_name}`;
+
+  // Gap card — to #2 (only meaningful if Jen is rank 3+)
+  const gap2El = document.getElementById('c-gap-2');
+  if (latest.target_rank && latest.target_rank <= 2) {
+    gap2El.textContent = '—';
+  } else if (latest.second_gifts != null) {
+    gap2El.textContent = Math.max(0, latest.second_gifts - latest.target_gifts);
+  } else {
+    gap2El.textContent = '—';
+  }
 
   // Jen card
   document.getElementById('c-jen').textContent = latest.target_gifts;
@@ -377,6 +391,7 @@ function updateUI(data) {
   // Rate & ETA — use all points within last 60 min
   const cutoff = new Date(latest.ts).getTime() - 60 * 60 * 1000;
   const window = h.filter(p => new Date(p.ts).getTime() >= cutoff);
+  const eta2El = document.getElementById('c-eta-2');
   if (window.length >= 2) {
     const dt       = (new Date(window[window.length-1].ts) - new Date(window[0].ts)) / 3600000;
     const jenRate  = dt > 0 ? (window[window.length-1].target_gifts - window[0].target_gifts) / dt : 0;
@@ -386,13 +401,14 @@ function updateUI(data) {
     document.getElementById('c-rate').textContent =
       jenRate >= 0 ? '+' + jenRate.toFixed(1) : jenRate.toFixed(1);
 
+    // ── ETA to #1 ──
     if (latest.delta <= 0) {
       document.getElementById('c-eta').textContent = '🏆';
       document.getElementById('c-eta-hint').textContent = 'Jen is in the lead!';
     } else if (netRate > 0) {
       document.getElementById('c-eta').textContent = fmtDur(latest.delta / netRate);
       document.getElementById('c-eta-hint').textContent =
-        `closing ${netRate.toFixed(1)} gifts/hr`;
+        `closing ${netRate.toFixed(1)} gifts/hr to #1`;
     } else {
       const hopefuls = [
         ['🎯', 'Rally time — every gift counts!'],
@@ -405,6 +421,32 @@ function updateUI(data) {
       document.getElementById('c-eta').textContent = pick[0];
       document.getElementById('c-eta-hint').textContent = pick[1];
     }
+
+    // ── ETA to #2 ── (only meaningful if Jen is rank 3+ and we have second-place history)
+    if (!latest.target_rank || latest.target_rank <= 2) {
+      eta2El.textContent = '—';
+    } else if (latest.second_gifts == null) {
+      eta2El.textContent = '—';
+    } else {
+      const winWithSecond = window.filter(p => p.second_gifts != null);
+      const gapTo2 = Math.max(0, latest.second_gifts - latest.target_gifts);
+      if (gapTo2 <= 0) {
+        eta2El.textContent = '🥈';
+      } else if (winWithSecond.length >= 2) {
+        const dt2  = (new Date(winWithSecond[winWithSecond.length-1].ts) -
+                      new Date(winWithSecond[0].ts)) / 3600000;
+        const jr2  = dt2 > 0 ? (winWithSecond[winWithSecond.length-1].target_gifts -
+                                winWithSecond[0].target_gifts) / dt2 : 0;
+        const sr2  = dt2 > 0 ? (winWithSecond[winWithSecond.length-1].second_gifts -
+                                winWithSecond[0].second_gifts) / dt2 : 0;
+        const net2 = jr2 - sr2;
+        eta2El.textContent = net2 > 0 ? fmtDur(gapTo2 / net2) : '💪';
+      } else {
+        eta2El.textContent = '…';
+      }
+    }
+  } else {
+    eta2El.textContent = '—';
   }
 
   // Leaderboard table
