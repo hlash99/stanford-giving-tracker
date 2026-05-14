@@ -36,10 +36,28 @@ jobs:
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          # Don't accidentally commit fetch.py (it's pulled from main just for the run)
-          git checkout -- fetch.py 2>/dev/null || true
+          # fetch.py was checked out from main for this run; don't commit it
           git restore --staged fetch.py 2>/dev/null || true
           rm -f fetch.py
+
+          # If nothing changed, exit cleanly
           git add data.json
-          git diff --cached --quiet || git commit -m "data: ci backup update"
-          git push origin HEAD:data
+          if git diff --cached --quiet; then
+            echo "No data changes to commit"
+            exit 0
+          fi
+          git commit -m "data: ci backup update"
+
+          # Retry with rebase to handle the local-tracker race condition
+          for i in 1 2 3; do
+            git fetch origin data
+            git rebase origin/data || { git rebase --abort; echo "rebase conflict — skipping cycle"; exit 0; }
+            if git push origin HEAD:data; then
+              echo "pushed on attempt $i"
+              exit 0
+            fi
+            echo "push failed attempt $i — retrying"
+            sleep 2
+          done
+          echo "could not push after 3 attempts — local tracker is likely active, skipping"
+          exit 0
