@@ -91,6 +91,23 @@ footer a:hover{color:#888}
 .celebration.winner .cel-title{font-size:1.4rem}
 .celebration.thanks .cel-inner{background:linear-gradient(135deg,#3b82f6,#8b5cf6,#ec4899)}
 
+/* milestone strip — site-wide donor progress */
+.milestone{background:linear-gradient(135deg,#1a1d27,#1f2940);border:1px solid #2c3148;border-radius:12px;padding:14px 18px;margin-bottom:20px;display:grid;grid-template-columns:1.6fr 1fr;gap:14px;align-items:center}
+@media(max-width:600px){.milestone{grid-template-columns:1fr;padding:12px 14px}}
+.ms-left{min-width:0}
+.ms-label{font-size:.65rem;text-transform:uppercase;letter-spacing:1px;color:#777;margin-bottom:5px}
+.ms-title{font-size:.95rem;font-weight:700;color:#e8eaf0;margin-bottom:8px;display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
+.ms-title b{color:#fbbf24;font-weight:900}
+.ms-bar{height:10px;background:#0f1117;border-radius:6px;overflow:hidden;border:1px solid #252839;position:relative}
+.ms-fill{height:100%;background:linear-gradient(90deg,#3b82f6,#8b5cf6,#fbbf24);transition:width .8s ease;border-radius:6px}
+.ms-numbers{font-size:.78rem;color:#888;margin-top:6px;display:flex;justify-content:space-between}
+.ms-right{display:flex;gap:14px;justify-content:flex-end;flex-wrap:wrap}
+@media(max-width:600px){.ms-right{justify-content:space-between}}
+.ms-stat{text-align:right;min-width:88px}
+@media(max-width:600px){.ms-stat{text-align:left}}
+.ms-stat .v{font-size:1.1rem;font-weight:800;color:#e8eaf0;line-height:1}
+.ms-stat .l{font-size:.62rem;text-transform:uppercase;letter-spacing:.8px;color:#666;margin-top:4px}
+
 /* persistent leading badge — visible only while Jen is #1 */
 .leading-badge{display:none;background:linear-gradient(135deg,#fbbf24,#f59e0b);color:#000;font-weight:900;letter-spacing:.6px;padding:6px 14px;border-radius:20px;font-size:.8rem;box-shadow:0 0 0 1px rgba(255,255,255,.25) inset,0 4px 14px rgba(251,191,36,.5);animation:goldPulse 1.8s ease-in-out infinite;align-items:center;gap:5px}
 .leading-badge.show{display:inline-flex}
@@ -186,6 +203,23 @@ body.is-leading{box-shadow:inset 0 0 0 3px rgba(251,191,36,.35)}
       <div class="lbl">ETA to #1 / #2</div>
       <div class="val"><span id="c-eta">—</span><span class="val-sep"> / </span><span class="val-2" id="c-eta-2">—</span></div>
       <div class="hint" id="c-eta-hint">at current net rate</div>
+    </div>
+  </div>
+
+  <div class="milestone" id="milestone" hidden>
+    <div class="ms-left">
+      <div class="ms-label">Next Stanford-wide milestone</div>
+      <div class="ms-title">Next <b id="ms-next">—</b>th Donor Challenge · unlocks $20K</div>
+      <div class="ms-bar"><div class="ms-fill" id="ms-fill" style="width:0%"></div></div>
+      <div class="ms-numbers">
+        <span><span id="ms-cur">—</span> / <span id="ms-tgt">—</span> donors</span>
+        <span id="ms-remaining">— to go</span>
+      </div>
+    </div>
+    <div class="ms-right">
+      <div class="ms-stat"><div class="v" id="ms-gifts">—</div><div class="l">Total gifts</div></div>
+      <div class="ms-stat"><div class="v" id="ms-donors">—</div><div class="l">Donors</div></div>
+      <div class="ms-stat"><div class="v" id="ms-raised">—</div><div class="l">Raised</div></div>
     </div>
   </div>
 
@@ -463,6 +497,31 @@ function updateUI(data) {
       <td class="col-raised" style="text-align:right;color:#444">${fmtMoney(p.raised)}</td>
     </tr>`;
   }).join('');
+
+  // ── Site-wide milestone strip ──
+  const msEl = document.getElementById('milestone');
+  if (latest.site_donors != null) {
+    msEl.hidden = false;
+    const donors = latest.site_donors;
+    // Next 1000-donor milestone above current count
+    const next = Math.ceil((donors + 1) / 1000) * 1000;
+    const prev = next - 1000;
+    const pct  = Math.min(100, Math.max(0, ((donors - prev) / 1000) * 100));
+    document.getElementById('ms-next').textContent = next.toLocaleString();
+    document.getElementById('ms-cur').textContent  = donors.toLocaleString();
+    document.getElementById('ms-tgt').textContent  = next.toLocaleString();
+    document.getElementById('ms-fill').style.width = pct.toFixed(1) + '%';
+    document.getElementById('ms-remaining').textContent =
+      `${(next - donors).toLocaleString()} to go (${pct.toFixed(1)}%)`;
+    document.getElementById('ms-gifts').textContent  = (latest.site_gifts || 0).toLocaleString();
+    document.getElementById('ms-donors').textContent = donors.toLocaleString();
+    const raised = latest.site_raised || 0;
+    document.getElementById('ms-raised').textContent =
+      raised >= 1e6 ? '$' + (raised/1e6).toFixed(2) + 'M'
+                     : '$' + Math.round(raised).toLocaleString();
+  } else {
+    msEl.hidden = true;
+  }
 
   // Last fetch time
   document.getElementById('last-fetch').textContent = fmtTime(latest.ts);
