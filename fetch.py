@@ -12,7 +12,8 @@ import requests
 API_URL     = ("https://dayofgiving.stanford.edu/ambassador_leaderboard/"
                "?entity_id=67217afd5aff7d247806bd0e&id=678773be4cf009577e8c454b&")
 HOME_URL    = "https://dayofgiving.stanford.edu/pages/home-2697"
-TARGET_NAME = "Jen Varela"
+TARGET_NAME  = "Jen Varela"     # display only
+TARGET_MATCH = "varela"         # case-insensitive substring match on API name
 DATA_FILE   = os.path.join(os.path.dirname(__file__), "data.json")
 
 def fetch_site_totals():
@@ -37,7 +38,7 @@ def main():
     ranked = sorted([p for p in participants if not p.get("hide")],
                     key=lambda p: -p["conversion"])
 
-    target = next((p for p in ranked if p["name"] == TARGET_NAME), None)
+    target = next((p for p in ranked if TARGET_MATCH in p["name"].lower()), None)
     leader = ranked[0] if ranked else None
     second = ranked[1] if len(ranked) > 1 else None
 
@@ -62,7 +63,7 @@ def main():
             "second_name":  second["name"]       if second else None,
             "delta":        leader["conversion"] - target["conversion"],
             "target_rank":  next(
-                (i + 1 for i, p in enumerate(ranked) if p["name"] == TARGET_NAME), None
+                (i + 1 for i, p in enumerate(ranked) if TARGET_MATCH in p["name"].lower()), None
             ),
             "site_gifts":   totals["site_gifts"],
             "site_donors":  totals["site_donors"],

@@ -8,6 +8,10 @@ on:
 permissions:
   contents: write
 
+env:
+  # Silence the "Node.js 20 actions deprecated" warning — opts the runner into Node 24 now.
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
 jobs:
   fetch:
     runs-on: ubuntu-latest
