@@ -614,9 +614,19 @@ function showBanner(emoji, title, sub, mode, durationMs) {
 
 function celebrateLeadGrab() {
   showBanner('🎉', 'JEN TOOK #1!', 'She just pulled into the lead!', '', 10000);
+  rainTeamJen(12000, 200);
   fireBurst({ particleCount: 150, spread: 100 });
   setTimeout(() => fireBurst({ particleCount: 80, angle: 60,  spread: 60, origin: { x: 0, y: 0.7 } }), 250);
   setTimeout(() => fireBurst({ particleCount: 80, angle: 120, spread: 60, origin: { x: 1, y: 0.7 } }), 500);
+}
+
+function celebrateSecondPlace() {
+  showBanner('🥈', 'JEN TOOK #2!', 'Moved into second — #1 is in sight!', '', 9000);
+  rainTeamJen(9000, 260);
+  const colors = ['#9ca3af','#e5e7eb','#60a5fa','#34d399','#fbbf24'];
+  fireBurst({ particleCount: 120, spread: 90, colors });
+  setTimeout(() => fireBurst({ particleCount: 70, angle: 60,  spread: 55, origin: { x: 0, y: 0.7 }, colors }), 250);
+  setTimeout(() => fireBurst({ particleCount: 70, angle: 120, spread: 55, origin: { x: 1, y: 0.7 }, colors }), 500);
 }
 
 function celebrateWin() {
@@ -651,10 +661,18 @@ function checkCelebrations(latest) {
 
   // Lead grab: rank flipped from non-#1 → #1 (live, during the event)
   if (!eventOver && rank === 1 && lastSeenRank !== null && lastSeenRank !== 1) {
-    const key = 'jen-lead-' + latest.ts.slice(0, 16); // dedupe within same data point
+    const key = 'jen-lead-' + latest.ts.slice(0, 16);
     if (!sessionStorage.getItem(key)) {
       sessionStorage.setItem(key, '1');
       celebrateLeadGrab();
+    }
+  }
+  // Second place: rank flipped from 3+ → 2
+  if (!eventOver && rank === 2 && lastSeenRank !== null && lastSeenRank > 2) {
+    const key = 'jen-second-' + latest.ts.slice(0, 16);
+    if (!sessionStorage.getItem(key)) {
+      sessionStorage.setItem(key, '1');
+      celebrateSecondPlace();
     }
   }
   lastSeenRank = rank;
