@@ -92,6 +92,7 @@ footer a:hover{color:#888}
 .celebration.thanks .cel-inner{background:linear-gradient(135deg,#3b82f6,#8b5cf6,#ec4899)}
 
 /* milestone strip — site-wide donor progress */
+.milestone[hidden]{display:none!important}
 .milestone{background:linear-gradient(135deg,#1a1d27,#1f2940);border:1px solid #2c3148;border-radius:12px;padding:14px 18px;margin-bottom:20px;display:grid;grid-template-columns:1.6fr 1fr;gap:14px;align-items:center}
 @media(max-width:600px){.milestone{grid-template-columns:1fr;padding:12px 14px}}
 .ms-left{min-width:0}
@@ -499,11 +500,16 @@ function updateUI(data) {
   }).join('');
 
   // ── Site-wide milestone strip ──
+  // Walk back through history to find the most recent point with site totals
+  // (a transient scrape error can occasionally leave a point with null site_*)
   const msEl = document.getElementById('milestone');
-  if (latest.site_donors != null) {
+  let siteSrc = null;
+  for (let i = h.length - 1; i >= 0; i--) {
+    if (h[i].site_donors != null) { siteSrc = h[i]; break; }
+  }
+  if (siteSrc) {
     msEl.hidden = false;
-    const donors = latest.site_donors;
-    // Next 1000-donor milestone above current count
+    const donors = siteSrc.site_donors;
     const next = Math.ceil((donors + 1) / 1000) * 1000;
     const prev = next - 1000;
     const pct  = Math.min(100, Math.max(0, ((donors - prev) / 1000) * 100));
@@ -513,9 +519,9 @@ function updateUI(data) {
     document.getElementById('ms-fill').style.width = pct.toFixed(1) + '%';
     document.getElementById('ms-remaining').textContent =
       `${(next - donors).toLocaleString()} to go (${pct.toFixed(1)}%)`;
-    document.getElementById('ms-gifts').textContent  = (latest.site_gifts || 0).toLocaleString();
+    document.getElementById('ms-gifts').textContent  = (siteSrc.site_gifts || 0).toLocaleString();
     document.getElementById('ms-donors').textContent = donors.toLocaleString();
-    const raised = latest.site_raised || 0;
+    const raised = siteSrc.site_raised || 0;
     document.getElementById('ms-raised').textContent =
       raised >= 1e6 ? '$' + (raised/1e6).toFixed(2) + 'M'
                      : '$' + Math.round(raised).toLocaleString();
