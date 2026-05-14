@@ -22,6 +22,7 @@ def main():
 
     target = next((p for p in ranked if p["name"] == TARGET_NAME), None)
     leader = ranked[0] if ranked else None
+    second = ranked[1] if len(ranked) > 1 else None
 
     if not target or not leader:
         print("Target or leader not found", file=sys.stderr)
@@ -33,40 +34,34 @@ def main():
     else:
         data = {"history": []}
 
-    # Deduplicate: skip if counts unchanged since last point
-    history = data.get("history", [])
-    if history:
-        last = history[-1]
-        if (last["target_gifts"] == target["conversion"] and
-                last["leader_gifts"] == leader["conversion"]):
-            print(f"No change — Jen={target['conversion']}, #1={leader['conversion']}, skipping commit")
-            # Still update leaderboard snapshot for rank changes below top 2
-        else:
-            point = {
-                "ts":           datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
-                "target_gifts": target["conversion"],
-                "leader_gifts": leader["conversion"],
-                "leader_name":  leader["name"],
-                "delta":        leader["conversion"] - target["conversion"],
-                "target_rank":  next(
-                    (i + 1 for i, p in enumerate(ranked) if p["name"] == TARGET_NAME), None
-                ),
-            }
-            data["history"].append(point)
-            print(f"Appended: Jen={point['target_gifts']}, "
-                  f"#1={point['leader_gifts']}, gap={point['delta']}")
-    else:
-        point = {
+    def build_point():
+        return {
             "ts":           datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
             "target_gifts": target["conversion"],
             "leader_gifts": leader["conversion"],
             "leader_name":  leader["name"],
+            "second_gifts": second["conversion"] if second else None,
+            "second_name":  second["name"]       if second else None,
             "delta":        leader["conversion"] - target["conversion"],
             "target_rank":  next(
                 (i + 1 for i, p in enumerate(ranked) if p["name"] == TARGET_NAME), None
             ),
         }
-        data["history"].append(point)
+
+    history = data.get("history", [])
+    if history:
+        last = history[-1]
+        if (last["target_gifts"] == target["conversion"] and
+                last["leader_gifts"] == leader["conversion"] and
+                last.get("second_gifts") == (second["conversion"] if second else None)):
+            print(f"No change — Jen={target['conversion']}, #1={leader['conversion']}, skipping commit")
+        else:
+            point = build_point()
+            data["history"].append(point)
+            print(f"Appended: Jen={point['target_gifts']}, "
+                  f"#1={point['leader_gifts']}, #2={point['second_gifts']}, gap={point['delta']}")
+    else:
+        data["history"].append(build_point())
 
     data["leaderboard"] = [
         {"rank": i + 1, "name": p["name"],

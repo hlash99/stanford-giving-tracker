@@ -242,11 +242,15 @@ function fmtMoney(n) {
 }
 
 function buildCharts(history) {
-  const labels  = history.map(p => new Date(p.ts));
-  const gaps    = history.map(p => p.delta);
-  const jenVals = history.map(p => p.target_gifts);
-  const ldrVals = history.map(p => p.leader_gifts);
-  const sparse  = history.length > 80;
+  const labels   = history.map(p => new Date(p.ts));
+  const gaps     = history.map(p => p.delta);
+  const jenVals  = history.map(p => p.target_gifts);
+  const ldrVals  = history.map(p => p.leader_gifts);
+  const secVals  = history.map(p => (p.second_gifts == null ? null : p.second_gifts));
+  const latestPt = history[history.length - 1] || {};
+  const secName  = latestPt.second_name || '#2';
+  const sparse   = history.length > 80;
+  const hasSecond = secVals.some(v => v != null);
 
   const xAxis = {
     type: 'time',
@@ -256,58 +260,87 @@ function buildCharts(history) {
   };
   const yBase = { ticks: { font: { size: 10 }, color: '#444' }, grid: { color: '#191c28' } };
 
+  // Gap chart datasets — gap to #1 always, gap to #2 when Jen isn't already in top 2
+  const gapDatasets = [{
+    label: 'Gap to #1',
+    data: gaps,
+    borderColor: '#f59e0b',
+    backgroundColor: 'rgba(245,158,11,.08)',
+    fill: true,
+    tension: .35,
+    pointRadius: sparse ? 0 : 3,
+    pointHoverRadius: 5,
+    borderWidth: 2
+  }];
+  if (hasSecond) {
+    const gapsToSecond = history.map(p =>
+      (p.second_gifts == null) ? null : Math.max(0, p.second_gifts - p.target_gifts)
+    );
+    gapDatasets.push({
+      label: 'Gap to #2',
+      data: gapsToSecond,
+      borderColor: '#34d399',
+      backgroundColor: 'rgba(52,211,153,.06)',
+      fill: false,
+      tension: .35,
+      pointRadius: sparse ? 0 : 3,
+      pointHoverRadius: 5,
+      borderWidth: 2,
+      borderDash: [4, 4],
+      spanGaps: true
+    });
+  }
+
   if (gapChart) gapChart.destroy();
   gapChart = new Chart(document.getElementById('gapChart'), {
     type: 'line',
-    data: {
-      labels,
-      datasets: [{
-        label: 'Gap',
-        data: gaps,
-        borderColor: '#f59e0b',
-        backgroundColor: 'rgba(245,158,11,.08)',
-        fill: true,
-        tension: .35,
-        pointRadius: sparse ? 0 : 3,
-        pointHoverRadius: 5,
-        borderWidth: 2
-      }]
-    },
+    data: { labels, datasets: gapDatasets },
     options: {
       responsive: true,
       animation: false,
       plugins: {
-        legend: { display: false },
-        tooltip: { callbacks: { label: c => ` Gap: ${c.raw} gifts` } }
+        legend: { display: hasSecond, labels: { font: { size: 10 }, boxWidth: 10, color: '#888' } },
+        tooltip: { callbacks: { label: c => ` ${c.dataset.label}: ${c.raw} gifts` } }
       },
       scales: { x: xAxis, y: { ...yBase, min: 0, title: { display: true, text: 'gifts behind', font: { size: 10 }, color: '#444' } } }
     }
   });
 
+  const absDatasets = [
+    {
+      label: '#1 (' + (latestPt.leader_name || '') + ')',
+      data: ldrVals,
+      borderColor: '#f87171',
+      backgroundColor: 'rgba(248,113,113,.04)',
+      fill: false, tension: .35,
+      pointRadius: sparse ? 0 : 3, pointHoverRadius: 5, borderWidth: 2
+    }
+  ];
+  if (hasSecond) {
+    absDatasets.push({
+      label: '#2 (' + secName + ')',
+      data: secVals,
+      borderColor: '#34d399',
+      backgroundColor: 'rgba(52,211,153,.04)',
+      fill: false, tension: .35,
+      pointRadius: sparse ? 0 : 3, pointHoverRadius: 5, borderWidth: 2,
+      borderDash: [4, 4],
+      spanGaps: true
+    });
+  }
+  absDatasets.push({
+    label: 'Jen',
+    data: jenVals,
+    borderColor: '#60a5fa',
+    backgroundColor: 'rgba(96,165,250,.08)',
+    fill: true, tension: .35,
+    pointRadius: sparse ? 0 : 3, pointHoverRadius: 5, borderWidth: 2
+  });
+
   if (absChart) absChart.destroy();
   absChart = new Chart(document.getElementById('absChart'), {
     type: 'line',
-    data: {
-      labels,
-      datasets: [
-        {
-          label: '#1 (' + (history[history.length-1]?.leader_name || '') + ')',
-          data: ldrVals,
-          borderColor: '#f87171',
-          backgroundColor: 'rgba(248,113,113,.04)',
-          fill: false, tension: .35,
-          pointRadius: sparse ? 0 : 3, pointHoverRadius: 5, borderWidth: 2
-        },
-        {
-          label: 'Jen',
-          data: jenVals,
-          borderColor: '#60a5fa',
-          backgroundColor: 'rgba(96,165,250,.08)',
-          fill: true, tension: .35,
-          pointRadius: sparse ? 0 : 3, pointHoverRadius: 5, borderWidth: 2
-        }
-      ]
-    },
+    data: { labels, datasets: absDatasets },
     options: {
       responsive: true,
       animation: false,
