@@ -91,6 +91,10 @@ footer a:hover{color:#888}
 .celebration.winner .cel-title{font-size:1.4rem}
 .celebration.thanks .cel-inner{background:linear-gradient(135deg,#3b82f6,#8b5cf6,#ec4899)}
 
+/* falling Team Jen photos */
+.photo-rain{position:fixed;inset:0;pointer-events:none;z-index:999;overflow:hidden}
+.photo-rain img{position:absolute;top:-220px;will-change:transform;filter:drop-shadow(0 6px 18px rgba(0,0,0,.35));border-radius:8px;user-select:none;-webkit-user-drag:none}
+
 /* milestone strip — site-wide donor progress */
 .milestone[hidden]{display:none!important}
 .milestone{background:linear-gradient(135deg,#1a1d27,#1f2940);border:1px solid #2c3148;border-radius:12px;padding:14px 18px;margin-bottom:20px;display:grid;grid-template-columns:1.6fr 1fr;gap:14px;align-items:center}
@@ -565,6 +569,40 @@ function fireBurst(opts) {
   confetti({ particleCount: 80, spread: 70, origin: { y: 0.6 }, ...opts });
 }
 
+function rainTeamJen(durationMs = 12000, spawnEveryMs = 220) {
+  let layer = document.querySelector('.photo-rain');
+  if (!layer) {
+    layer = document.createElement('div');
+    layer.className = 'photo-rain';
+    document.body.appendChild(layer);
+  }
+  const stopAt = Date.now() + durationMs;
+  (function spawn() {
+    if (Date.now() > stopAt) {
+      setTimeout(() => layer.remove(), 9000);
+      return;
+    }
+    const img = document.createElement('img');
+    img.src = 'team-jen.png';
+    img.alt = '';
+    const size = 60 + Math.random() * 80;        // 60–140px wide
+    img.style.width = size + 'px';
+    img.style.left = (Math.random() * 100) + 'vw';
+    img.style.transform = `translate(0, 0) rotate(${(Math.random() - 0.5) * 30}deg)`;
+    const driftX = (Math.random() - 0.5) * 240;
+    const rotEnd = (Math.random() - 0.5) * 540;
+    const fallMs = 4500 + Math.random() * 4500;  // 4.5–9 sec to fall
+    img.style.transition = `transform ${fallMs}ms cubic-bezier(.4,.05,.7,1)`;
+    layer.appendChild(img);
+    requestAnimationFrame(() => {
+      img.style.transform =
+        `translate(${driftX}px, calc(100vh + 320px)) rotate(${rotEnd}deg)`;
+    });
+    setTimeout(() => img.remove(), fallMs + 200);
+    setTimeout(spawn, spawnEveryMs * (0.7 + Math.random() * 0.6));
+  })();
+}
+
 function showBanner(emoji, title, sub, mode, durationMs) {
   const el = document.getElementById('celebration');
   document.getElementById('cel-emoji').textContent = emoji;
@@ -583,6 +621,7 @@ function celebrateLeadGrab() {
 
 function celebrateWin() {
   showBanner('🏆', 'JEN WINS #1!', 'Stanford Day of Giving champion!', 'winner', 0);
+  rainTeamJen(18000, 180);  // longer, denser photo rain for a win
   const end = Date.now() + 12000;
   (function frame() {
     fireBurst({ particleCount: 6, angle: 60,  spread: 60, origin: { x: 0, y: 0.7 },
@@ -599,6 +638,7 @@ function celebrateParticipation(finalRank, finalGifts) {
     'THANK YOU, TEAM JEN!',
     `Finished #${finalRank} with ${finalGifts} gifts — every one made a difference.`,
     'thanks', 0);
+  rainTeamJen(14000, 260);  // gentler photo rain for participation
   const colors = ['#3b82f6','#8b5cf6','#ec4899','#f59e0b','#60a5fa'];
   fireBurst({ particleCount: 120, spread: 110, colors });
   setTimeout(() => fireBurst({ particleCount: 100, angle: 60,  spread: 70, origin: { x: 0, y: 0.7 }, colors }), 400);
