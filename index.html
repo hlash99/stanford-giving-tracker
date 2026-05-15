@@ -95,6 +95,36 @@ footer a:hover{color:#888}
 .photo-rain{position:fixed;inset:0;pointer-events:none;z-index:999;overflow:hidden}
 .photo-rain img{position:absolute;top:-220px;will-change:transform;filter:drop-shadow(0 6px 18px rgba(0,0,0,.35));border-radius:8px;user-select:none;-webkit-user-drag:none}
 
+/* results card — shows after the event ends */
+.results[hidden]{display:none!important}
+.results{background:linear-gradient(135deg,#1a1d27 0%,#1f1b3a 50%,#2a1f3a 100%);
+  border:1px solid #3a2f5a;border-radius:16px;padding:28px 26px;margin-bottom:22px;
+  box-shadow:0 14px 40px rgba(0,0,0,.35), 0 0 0 1px rgba(255,255,255,.04) inset;
+  position:relative;overflow:hidden}
+.results::before{content:"";position:absolute;inset:-50% -50% auto auto;width:200%;height:200%;
+  background:radial-gradient(circle at top right, rgba(251,191,36,.15), transparent 50%);
+  pointer-events:none}
+.results-medal{font-size:2.4rem;line-height:1;margin-bottom:6px;display:block}
+.results-headline{font-size:1.5rem;font-weight:900;letter-spacing:.4px;color:#fff;margin-bottom:6px}
+.results-sub{font-size:.95rem;color:#c4c8d4;margin-bottom:18px;line-height:1.4}
+.results-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:14px;margin-bottom:18px}
+.results-stat{background:rgba(0,0,0,.25);border:1px solid #2a2d3a;border-radius:10px;padding:14px 12px;text-align:center}
+.results-stat .v{font-size:1.6rem;font-weight:800;color:#fff;line-height:1}
+.results-stat .l{font-size:.68rem;text-transform:uppercase;letter-spacing:1px;color:#888;margin-top:6px}
+.results-thanks{font-size:1rem;color:#e8eaf0;margin-top:14px;line-height:1.55}
+.results-thanks b{color:#fbbf24;font-weight:700}
+.results-signoff{margin-top:14px;padding-top:14px;border-top:1px solid #2a2d3a;
+  font-size:1.05rem;color:#fbbf24;font-weight:700;letter-spacing:.3px;text-align:center}
+.results.win .results-headline{color:#fbbf24}
+.results.win{background:linear-gradient(135deg,#1a1d27 0%,#3a2f0a 50%,#1a1d27 100%)}
+
+@media(max-width:600px){
+  .results{padding:22px 18px}
+  .results-headline{font-size:1.2rem}
+  .results-medal{font-size:2rem}
+  .results-stat .v{font-size:1.35rem}
+}
+
 /* milestone strip — site-wide donor progress */
 .milestone[hidden]{display:none!important}
 .milestone{background:linear-gradient(135deg,#1a1d27,#1f2940);border:1px solid #2c3148;border-radius:12px;padding:14px 18px;margin-bottom:20px;display:grid;grid-template-columns:1.6fr 1fr;gap:14px;align-items:center}
@@ -177,6 +207,22 @@ body.is-leading{box-shadow:inset 0 0 0 3px rgba(251,191,36,.35)}
 </header>
 
 <main>
+
+  <div class="results" id="results" hidden>
+    <span class="results-medal" id="r-medal">🥈</span>
+    <div class="results-headline" id="r-headline">The results are in!</div>
+    <div class="results-sub" id="r-sub">—</div>
+
+    <div class="results-stats">
+      <div class="results-stat"><div class="v" id="r-rank">—</div><div class="l">Final rank</div></div>
+      <div class="results-stat"><div class="v" id="r-gifts">—</div><div class="l">Jen's gifts</div></div>
+      <div class="results-stat"><div class="v" id="r-gap">—</div><div class="l" id="r-gap-l">Gap to #1</div></div>
+      <div class="results-stat"><div class="v" id="r-site-raised">—</div><div class="l">Stanford raised</div></div>
+    </div>
+
+    <div class="results-thanks" id="r-thanks">—</div>
+    <div class="results-signoff">See you next year! 💙</div>
+  </div>
 
   <div class="milestone" id="milestone" hidden>
     <div class="ms-left">
@@ -503,6 +549,52 @@ function updateUI(data) {
     </tr>`;
   }).join('');
 
+  // ── Persistent final-results card (post-event) ──
+  const resEl = document.getElementById('results');
+  const eventOverNow = Date.now() >= END_TIME;
+  if (eventOverNow) {
+    resEl.hidden = false;
+    const r = latest.target_rank;
+    const isWin = r === 1;
+    resEl.classList.toggle('win', isWin);
+    document.getElementById('r-medal').textContent =
+      isWin ? '🏆' : (r === 2 ? '🥈' : r === 3 ? '🥉' : '💙');
+    document.getElementById('r-headline').textContent =
+      isWin ? `JEN WON STANFORD DAY OF GIVING!`
+            : `A photo finish for Team Jen!`;
+
+    const leaderName = latest.leader_name || '#1';
+    const gap = latest.delta;
+    document.getElementById('r-sub').textContent =
+      isWin
+        ? `She finished #1 with ${latest.target_gifts} gifts — ahead of ${leaderName}.`
+        : `Jen finished #${r} with ${latest.target_gifts} gifts — ` +
+          (gap <= 5 ? `just ${gap} behind ${leaderName} in a nail-biter.`
+                    : `${gap} behind ${leaderName}.`);
+
+    document.getElementById('r-rank').textContent  = '#' + r;
+    document.getElementById('r-gifts').textContent = latest.target_gifts.toLocaleString();
+    document.getElementById('r-gap').textContent   = isWin ? '+' + Math.abs(gap) : gap;
+    document.getElementById('r-gap-l').textContent = isWin ? 'Ahead of #2' : 'Gap to #1';
+
+    // Stanford-wide $ raised — pull most recent non-null site total
+    let raised = null;
+    for (let i = h.length - 1; i >= 0; i--) {
+      if (h[i].site_raised != null) { raised = h[i].site_raised; break; }
+    }
+    document.getElementById('r-site-raised').textContent =
+      raised != null
+        ? (raised >= 1e6 ? '$' + (raised/1e6).toFixed(2) + 'M'
+                          : '$' + Math.round(raised).toLocaleString())
+        : '—';
+
+    document.getElementById('r-thanks').innerHTML = isWin
+      ? `Thank you to <b>every donor</b> who made this win possible. Stanford Day of Giving 2026 — what a finish! 🏆`
+      : `Thank you to <b>every donor</b> who showed up for Team Jen. Down to the wire, every gift mattered — what a finish! 💙`;
+  } else {
+    resEl.hidden = true;
+  }
+
   // ── Site-wide milestone strip ──
   // Walk back through history to find the most recent point with site totals
   // (a transient scrape error can occasionally leave a point with null site_*)
@@ -511,7 +603,7 @@ function updateUI(data) {
   for (let i = h.length - 1; i >= 0; i--) {
     if (h[i].site_donors != null) { siteSrc = h[i]; break; }
   }
-  if (siteSrc) {
+  if (siteSrc && !eventOverNow) {
     msEl.hidden = false;
     const donors = siteSrc.site_donors;
     const next = Math.ceil((donors + 1) / 1000) * 1000;
