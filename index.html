@@ -591,7 +591,7 @@ function updateUI(data) {
               : 'A photo finish for Team Jen!';
 
     document.getElementById('r-sub').innerHTML = tied
-      ? `After Stanford reviewed the last-minute timestamps, <b>Jen and ${leaderName} finished TIED for #1</b> with <b>${finalGifts} gifts each</b>.<br>` +
+      ? `<b>Jen and ${leaderName} finished TIED for #1</b> with <b>${finalGifts} gifts each</b>.<br>` +
         `<b>$${(OFFICIAL_RESULT.prizeForCause/1000).toFixed(0)}K</b> unlocked for the ${OFFICIAL_RESULT.cause}, plus a bonus <b>$${(OFFICIAL_RESULT.closingTimeBonus/1000).toFixed(0)}K</b> from the "Closing Time" challenge (4:59:59 PM donation!).`
       : isWin
         ? `She finished #1 with ${finalGifts} gifts — ahead of ${leaderName}.`
