@@ -43,8 +43,10 @@ def main():
     second = ranked[1] if len(ranked) > 1 else None
 
     if not target or not leader:
-        print("Target or leader not found", file=sys.stderr)
-        sys.exit(1)
+        # Off-season: Stanford's leaderboard may be empty/archived. Exit cleanly
+        # (success, no-op) so the scheduled workflow doesn't email a failure.
+        print("Target or leader not found in Stanford response — likely off-season. Skipping.")
+        sys.exit(0)
 
     if os.path.exists(DATA_FILE):
         with open(DATA_FILE) as f:
