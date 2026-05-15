@@ -213,7 +213,7 @@ body.is-leading{box-shadow:inset 0 0 0 3px rgba(251,191,36,.35)}
   <div class="status-block">
     <span class="leading-badge" id="leading-badge">👑 LEADING</span>
     <span class="badge live" id="status-badge">● LIVE</span>
-    <span class="refresh-note">refreshes every 10s</span>
+    <span class="refresh-note" id="refresh-note">—</span>
   </div>
 </header>
 
@@ -567,7 +567,7 @@ function updateUI(data) {
 
   // ── Persistent final-results card (post-event) ──
   const resEl = document.getElementById('results');
-  const eventOverNow = Date.now() >= END_TIME;
+  const eventOverNow = !currentEvent().isLive;
   if (eventOverNow) {
     resEl.hidden = false;
     const r = latest.target_rank;
@@ -765,7 +765,7 @@ function celebrateParticipation(finalRank, finalGifts) {
 
 function checkCelebrations(latest) {
   const rank      = latest.target_rank;
-  const eventOver = Date.now() >= END_TIME;
+  const eventOver = !currentEvent().isLive;
 
   // Lead grab: rank flipped from non-#1 → #1 (live, during the event)
   if (!eventOver && rank === 1 && lastSeenRank !== null && lastSeenRank !== 1) {
@@ -806,30 +806,141 @@ function checkCelebrations(latest) {
   }
 }
 
+// Pull the data branch from GitHub (historical chart data).
+async function fetchHistory() {
+  const r = await fetch('https://raw.githubusercontent.com/hlash99/stanford-giving-tracker/data/data.json?t=' + Date.now());
+  if (!r.ok) throw new Error('history ' + r.status);
+  return r.json();
+}
+// Pull Stanford's live leaderboard directly (CORS is open). Returns a normalized
+// snapshot in the same shape as our history points + a top-10 leaderboard.
+async function fetchStanfordLive() {
+  const r = await fetch(STANFORD_API + '&t=' + Date.now());
+  if (!r.ok) throw new Error('stanford ' + r.status);
+  const j = await r.json();
+  const ranked = (j.show_participants || []).filter(p => !p.hide)
+                    .sort((a,b) => b.conversion - a.conversion);
+  const target = ranked.find(p => /varela/i.test(p.name));
+  const leader = ranked[0], second = ranked[1];
+  if (!target || !leader) throw new Error('target/leader not found');
+  const rank = ranked.findIndex(p => /varela/i.test(p.name)) + 1;
+  return {
+    point: {
+      ts: new Date().toISOString(),
+      target_gifts: target.conversion,
+      leader_gifts: leader.conversion,
+      leader_name:  leader.name,
+      second_gifts: second ? second.conversion : null,
+      second_name:  second ? second.name       : null,
+      delta:        leader.conversion - target.conversion,
+      target_rank:  rank,
+    },
+    leaderboard: ranked.slice(0, 10).map((p, i) => ({
+      rank: i + 1, name: p.name,
+      gifts: p.conversion,
+      campaign: p.campaign_name,
+      raised: parseFloat(p.amount_raised),
+    })),
+  };
+}
+
+let lastHistory = { history: [], leaderboard: [] };
+let lastHistoryFetch = 0;
+
 async function load() {
+  const badge = document.getElementById('status-badge');
+  const ev = currentEvent();
   try {
-    const r = await fetch('https://raw.githubusercontent.com/hlash99/stanford-giving-tracker/data/data.json?t=' + Date.now());
-    if (!r.ok) throw new Error(r.status);
-    updateUI(await r.json());
-    document.getElementById('status-badge').textContent = '● LIVE';
-    document.getElementById('status-badge').style.background = 'rgba(52,211,153,.25)';
+    let data;
+    if (ev.isLive) {
+      // ── Live event: prefer Stanford direct for current numbers, refresh
+      //    the history from data branch every ~60s so the chart fills in. ──
+      const now = Date.now();
+      if (now - lastHistoryFetch > 60000 || !lastHistory.history.length) {
+        try { lastHistory = await fetchHistory(); lastHistoryFetch = now; }
+        catch (e) { console.warn('history fetch failed (continuing):', e); }
+      }
+      const live = await fetchStanfordLive();
+      // Append/replace a synthesized "now" point so the chart and cards
+      // show truly real-time data even when tracker/Actions are stale.
+      const merged = [...(lastHistory.history || [])];
+      // De-dup: if the last stored point already matches Stanford's current
+      // counts, don't append a new tail; otherwise add a synthetic point.
+      const last = merged[merged.length - 1];
+      if (!last || last.target_gifts !== live.point.target_gifts ||
+                   last.leader_gifts !== live.point.leader_gifts ||
+                   last.target_rank  !== live.point.target_rank) {
+        merged.push(live.point);
+      }
+      data = { history: merged, leaderboard: live.leaderboard };
+      badge.textContent = '● LIVE';
+      badge.style.background = 'rgba(52,211,153,.25)';
+    } else {
+      // Off-season / pre-event / post-event: just show history from data branch
+      data = await fetchHistory();
+      lastHistory = data;
+      badge.textContent = '● LIVE';
+      badge.style.background = 'rgba(52,211,153,.25)';
+    }
+    updateUI(data);
   } catch (e) {
-    console.error('fetch failed:', e);
-    document.getElementById('status-badge').textContent = '⚠ offline';
-    document.getElementById('status-badge').style.background = 'rgba(248,113,113,.25)';
+    console.error('load failed:', e);
+    badge.textContent = '⚠ offline';
+    badge.style.background = 'rgba(248,113,113,.25)';
   }
 }
 
-// ── Countdown ───────────────────────────────────────────────────────
-// During event: counts down to end of 2026 event (5pm PT May 14, 2026)
-// After event:  counts down to start of 2027 event (12am PT May 12, 2027 — same 2nd Wed of May)
-const END_TIME   = new Date('2026-05-15T00:00:00Z').getTime();  // 5pm PT May 14, 2026
-const NEXT_START = new Date('2027-05-12T07:00:00Z').getTime();  // 12am PT May 12, 2027 (PDT = UTC-7)
+// Adaptive polling: 10s normally, 2s when <5min remaining in the live event,
+// 60s when off-season (nothing's changing).
+let loadTimer = null;
+function rescheduleLoad() {
+  if (loadTimer) clearTimeout(loadTimer);
+  const ev = currentEvent();
+  const now = Date.now();
+  let next;
+  if (ev.isLive) {
+    const remaining = ev.end - now;
+    next = remaining < 5 * 60 * 1000 ? 2000 : 10000;     // crunch-time mode
+  } else {
+    next = 60000;                                         // off-season — slow poll
+  }
+  loadTimer = setTimeout(async () => { await load(); rescheduleLoad(); }, next);
+  const note = document.getElementById('refresh-note');
+  if (note) note.textContent =
+    next < 5000 ? `crunch mode · refreshes every ${(next/1000)|0}s`
+                 : `refreshes every ${(next/1000)|0}s`;
+}
+
+// ── Event window helpers (dynamic — works year over year) ───────────
+// Stanford Day of Giving = 2nd Wednesday-Thursday of May.
+// Event window: 12:00 AM PT Wed → 5:00 PM PT Thu = 41 hours.
+// PDT in May = UTC-7, so 12am PT Wed = 07:00 UTC Wed; 5pm PT Thu = 00:00 UTC Fri.
+function eventWindow(year) {
+  const may1Dow = new Date(Date.UTC(year, 4, 1)).getUTCDay();   // 0=Sun..6=Sat
+  const wedOffset = (3 - may1Dow + 7) % 7;                       // days from May 1 → first Wed
+  const wedDate = 1 + wedOffset + 7;                             // date of 2nd Wed
+  return {
+    year,
+    start: Date.UTC(year, 4, wedDate,       7, 0, 0),            // 12am PT Wed
+    end:   Date.UTC(year, 4, wedDate + 2,   0, 0, 0),            // 5pm PT Thu (=midnight UTC Fri)
+  };
+}
+function currentEvent() {
+  const now = Date.now();
+  const y = new Date(now).getUTCFullYear();
+  const cur = eventWindow(y);
+  if (now < cur.end)                                             // before-or-during this year's event
+    return { ...cur, isLive: now >= cur.start, isPast: false };
+  return { ...eventWindow(y + 1), isLive: false, isPast: false };  // past — show next year's
+}
+const STANFORD_API = "https://dayofgiving.stanford.edu/ambassador_leaderboard/?entity_id=67217afd5aff7d247806bd0e&id=678773be4cf009577e8c454b&";
 
 function tickCountdown() {
   const now       = Date.now();
-  const eventOver = now >= END_TIME;
-  const target    = eventOver ? NEXT_START : END_TIME;
+  const ev        = currentEvent();
+  // While the event is LIVE, count down to its END. Otherwise, count down to next event's START.
+  const eventOver = !ev.isLive;
+  const target    = ev.isLive ? ev.end : ev.start;
   const ms        = target - now;
 
   const el      = document.getElementById('countdown');
@@ -858,9 +969,8 @@ function tickCountdown() {
 tickCountdown();
 setInterval(tickCountdown, 1000);
 
-// Auto-reload data every 10s
-load();
-setInterval(load, 10 * 1000);
+// Initial load, then adaptive polling (fast in last 5 min, slow off-season)
+load().then(rescheduleLoad);
 </script>
 </body>
 </html>
