@@ -912,16 +912,16 @@ function rescheduleLoad() {
 }
 
 // ── Event window helpers (dynamic — works year over year) ───────────
-// Stanford Day of Giving = 2nd Wednesday-Thursday of May.
-// Event window: 12:00 AM PT Wed → 5:00 PM PT Thu = 41 hours.
-// PDT in May = UTC-7, so 12am PT Wed = 07:00 UTC Wed; 5pm PT Thu = 00:00 UTC Fri.
+// Stanford Day of Giving = 2nd Wednesday-Thursday of May, 36-hour window.
+// Confirmed pattern: 2025 = May 14-15, 2026 = May 13-14, both 5am PT Wed → 5pm PT Thu.
+// PDT in May = UTC-7, so 5am PT Wed = 12:00 UTC Wed; 5pm PT Thu = 00:00 UTC Fri.
 function eventWindow(year) {
   const may1Dow = new Date(Date.UTC(year, 4, 1)).getUTCDay();   // 0=Sun..6=Sat
   const wedOffset = (3 - may1Dow + 7) % 7;                       // days from May 1 → first Wed
   const wedDate = 1 + wedOffset + 7;                             // date of 2nd Wed
   return {
     year,
-    start: Date.UTC(year, 4, wedDate,       7, 0, 0),            // 12am PT Wed
+    start: Date.UTC(year, 4, wedDate,      12, 0, 0),            // 5am PT Wed
     end:   Date.UTC(year, 4, wedDate + 2,   0, 0, 0),            // 5pm PT Thu (=midnight UTC Fri)
   };
 }
