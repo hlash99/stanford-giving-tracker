@@ -217,7 +217,7 @@ body.is-leading{box-shadow:inset 0 0 0 3px rgba(251,191,36,.35)}
       <div class="results-stat"><div class="v" id="r-rank">—</div><div class="l">Final rank</div></div>
       <div class="results-stat"><div class="v" id="r-gifts">—</div><div class="l">Jen's gifts</div></div>
       <div class="results-stat"><div class="v" id="r-gap">—</div><div class="l" id="r-gap-l">Gap to #1</div></div>
-      <div class="results-stat"><div class="v" id="r-site-raised">—</div><div class="l">Stanford raised</div></div>
+      <div class="results-stat"><div class="v" id="r-site-raised">—</div><div class="l">Team Jen raised</div></div>
     </div>
 
     <div class="results-thanks" id="r-thanks">—</div>
@@ -577,11 +577,9 @@ function updateUI(data) {
     document.getElementById('r-gap').textContent   = isWin ? '+' + Math.abs(gap) : gap;
     document.getElementById('r-gap-l').textContent = isWin ? 'Ahead of #2' : 'Gap to #1';
 
-    // Stanford-wide $ raised — pull most recent non-null site total
-    let raised = null;
-    for (let i = h.length - 1; i >= 0; i--) {
-      if (h[i].site_raised != null) { raised = h[i].site_raised; break; }
-    }
+    // Team Jen's total raised — pull from current leaderboard snapshot
+    const jenRow = (lb || []).find(p => /varela/i.test(p.name));
+    const raised = jenRow ? jenRow.raised : null;
     document.getElementById('r-site-raised').textContent =
       raised != null
         ? (raised >= 1e6 ? '$' + (raised/1e6).toFixed(2) + 'M'
