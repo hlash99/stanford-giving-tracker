@@ -570,41 +570,64 @@ function updateUI(data) {
   const eventOverNow = !currentEvent().isLive;
   if (eventOverNow) {
     resEl.hidden = false;
-    const r = latest.target_rank;
+    // If Stanford issued an official-result override, honor it; otherwise use live data.
+    const tied  = OFFICIAL_RESULT && OFFICIAL_RESULT.tied;
+    const r     = OFFICIAL_RESULT ? OFFICIAL_RESULT.rank : latest.target_rank;
     const isWin = r === 1;
     resEl.classList.toggle('win', isWin);
+
+    const finalGifts = OFFICIAL_RESULT ? OFFICIAL_RESULT.finalGifts : latest.target_gifts;
+    const leaderName = OFFICIAL_RESULT ? OFFICIAL_RESULT.tiedWith   : (latest.leader_name || '#1');
+    const gap        = OFFICIAL_RESULT ? 0                          : latest.delta;
+
     document.getElementById('r-medal').textContent =
-      isWin ? '🏆' : (r === 2 ? '🥈' : r === 3 ? '🥉' : '💙');
+      tied   ? '🏆'
+      : isWin ? '🏆'
+      : (r === 2 ? '🥈' : r === 3 ? '🥉' : '💙');
+
     document.getElementById('r-headline').textContent =
-      isWin ? `JEN WON STANFORD DAY OF GIVING!`
-            : `A photo finish for Team Jen!`;
+      tied   ? 'CO-CHAMPIONS — TIE FOR #1!'
+      : isWin ? 'JEN WON STANFORD DAY OF GIVING!'
+              : 'A photo finish for Team Jen!';
 
-    const leaderName = latest.leader_name || '#1';
-    const gap = latest.delta;
-    document.getElementById('r-sub').textContent =
-      isWin
-        ? `She finished #1 with ${latest.target_gifts} gifts — ahead of ${leaderName}.`
-        : `Jen finished #${r} with ${latest.target_gifts} gifts — ` +
-          (gap <= 5 ? `just ${gap} behind ${leaderName} in a nail-biter.`
-                    : `${gap} behind ${leaderName}.`);
+    document.getElementById('r-sub').innerHTML = tied
+      ? `After Stanford reviewed the last-minute timestamps, <b>Jen and ${leaderName} finished TIED for #1</b> with <b>${finalGifts} gifts each</b>.<br>` +
+        `<b>$${(OFFICIAL_RESULT.prizeForCause/1000).toFixed(0)}K</b> unlocked for the ${OFFICIAL_RESULT.cause}, plus a bonus <b>$${(OFFICIAL_RESULT.closingTimeBonus/1000).toFixed(0)}K</b> from the "Closing Time" challenge (4:59:59 PM donation!).`
+      : isWin
+        ? `She finished #1 with ${finalGifts} gifts — ahead of ${leaderName}.`
+        : `Jen finished #${r} with ${finalGifts} gifts — ` +
+          (gap <= 5 ? `just ${gap} behind ${leaderName} in a nail-biter.` : `${gap} behind ${leaderName}.`);
 
-    document.getElementById('r-rank').textContent  = '#' + r;
-    document.getElementById('r-gifts').textContent = latest.target_gifts.toLocaleString();
-    document.getElementById('r-gap').textContent   = isWin ? '+' + Math.abs(gap) : gap;
-    document.getElementById('r-gap-l').textContent = isWin ? 'Ahead of #2' : 'Gap to #1';
+    document.getElementById('r-rank').textContent  = tied ? 'T-#1' : ('#' + r);
+    document.getElementById('r-gifts').textContent = finalGifts.toLocaleString();
 
-    // Team Jen's total raised — pull from current leaderboard snapshot
+    // 3rd stat repurposed when there's a prize win to celebrate
+    if (OFFICIAL_RESULT) {
+      const totalWon = (OFFICIAL_RESULT.prizeForCause || 0) + (OFFICIAL_RESULT.closingTimeBonus || 0);
+      document.getElementById('r-gap').textContent   = '$' + (totalWon/1000).toFixed(0) + 'K';
+      document.getElementById('r-gap-l').textContent = 'Won for Research';
+    } else {
+      document.getElementById('r-gap').textContent   = isWin ? '+' + Math.abs(gap) : gap;
+      document.getElementById('r-gap-l').textContent = isWin ? 'Ahead of #2' : 'Gap to #1';
+    }
+
+    // Team Jen's total raised
     const jenRow = (lb || []).find(p => /varela/i.test(p.name));
-    const raised = jenRow ? jenRow.raised : null;
+    const raised = OFFICIAL_RESULT ? OFFICIAL_RESULT.finalRaised : (jenRow ? jenRow.raised : null);
     document.getElementById('r-site-raised').textContent =
       raised != null
         ? (raised >= 1e6 ? '$' + (raised/1e6).toFixed(2) + 'M'
                           : '$' + Math.round(raised).toLocaleString())
         : '—';
 
-    document.getElementById('r-thanks').innerHTML = isWin
-      ? `Thank you to <b>every donor</b> who made this win possible. Stanford Day of Giving 2026 — what a finish! 🏆`
-      : `Thank you to <b>every donor</b> who showed up for Team Jen. Down to the wire, every gift mattered — what a finish! 💙`;
+    document.getElementById('r-thanks').innerHTML = tied
+      ? `Thank you to <b>every donor</b> who showed up — what a finish! ` +
+        `Team Jen and Team Athletics ran neck-and-neck right to the buzzer, ` +
+        `and <b>both</b> walked away with $25K for their cause. ` +
+        `Plus Director-level football tickets and a $100 Stanford bookstore gift card to boot. 🏆🤝`
+      : isWin
+        ? `Thank you to <b>every donor</b> who made this win possible. Stanford Day of Giving 2026 — what a finish! 🏆`
+        : `Thank you to <b>every donor</b> who showed up for Team Jen. Down to the wire, every gift mattered — what a finish! 💙`;
   } else {
     resEl.hidden = true;
   }
@@ -650,9 +673,9 @@ function updateUI(data) {
 
 // ── Celebrations ─────────────────────────────────────────────────────
 let lastSeenRank = null;
-// v3 — invalidate any stale "I already celebrated" flags from earlier versions
-// so the banner reflects the *actual* final standings, not a transient mid-flight rank.
-let lastEndedRank = parseInt(sessionStorage.getItem('jen-end-rank-v3') || '0', 10) || null;
+// v4 — invalidate prior "I already celebrated" flags so the corrected tie-for-#1
+// official result fires the WIN celebration on next page load.
+let lastEndedRank = parseInt(sessionStorage.getItem('jen-end-rank-v4') || '0', 10) || null;
 let leadingInterval = null;
 
 function startLeadingMode() {
@@ -738,7 +761,11 @@ function celebrateSecondPlace() {
 }
 
 function celebrateWin() {
-  showBanner('🏆', 'JEN WINS #1!', 'Stanford Day of Giving champion!', 'winner', 0);
+  const tied = OFFICIAL_RESULT && OFFICIAL_RESULT.tied;
+  const title = tied ? 'CO-CHAMPIONS!' : 'JEN WINS #1!';
+  const sub   = tied ? `Tied with ${OFFICIAL_RESULT.tiedWith} — $25K each for their cause!`
+                     : 'Stanford Day of Giving champion!';
+  showBanner('🏆', title, sub, 'winner', 0);
   rainTeamJen(18000, 180);  // longer, denser photo rain for a win
   const end = Date.now() + 12000;
   (function frame() {
@@ -790,18 +817,18 @@ function checkCelebrations(latest) {
   else                          stopLeadingMode();
 
   // Event end: fire the celebration matching the *current* final rank.
-  // If we already celebrated for a different rank (e.g. transient rank flip
-  // around the cutoff), re-fire with the corrected result.
+  // Stanford's official result (the tie) overrides whatever rank the live API
+  // shows, so the win celebration fires for the co-championship.
   if (eventOver) {
-    const finalKind = rank === 1 ? 1 : 0;   // 1 = win, 0 = participation
+    const officialRank = OFFICIAL_RESULT ? OFFICIAL_RESULT.rank : rank;
+    const finalKind = officialRank === 1 ? 1 : 0;
     const lastKind  = lastEndedRank === 1 ? 1 : (lastEndedRank ? 0 : null);
     if (lastKind === null || lastKind !== finalKind) {
-      lastEndedRank = rank;
-      sessionStorage.setItem('jen-end-rank-v3', String(rank));
-      // Stop any ongoing "leading" mode if rank settled at non-#1
-      if (rank !== 1) stopLeadingMode();
-      if (rank === 1) celebrateWin();
-      else            celebrateParticipation(rank, latest.target_gifts);
+      lastEndedRank = officialRank;
+      sessionStorage.setItem('jen-end-rank-v4', String(officialRank));
+      if (officialRank !== 1) stopLeadingMode();
+      if (officialRank === 1) celebrateWin();
+      else                    celebrateParticipation(officialRank, latest.target_gifts);
     }
   }
 }
@@ -934,6 +961,23 @@ function currentEvent() {
   return { ...eventWindow(y + 1), isLive: false, isPast: false };  // past — show next year's
 }
 const STANFORD_API = "https://dayofgiving.stanford.edu/ambassador_leaderboard/?entity_id=67217afd5aff7d247806bd0e&id=678773be4cf009577e8c454b&";
+
+// ── OFFICIAL 2026 RESULT OVERRIDE ──────────────────────────────────────
+// Stanford reviewed the timestamps on last-minute gifts and announced
+// a TIE for #1 — both Jen and Drew are co-champions. This supersedes
+// whatever the live API shows. Set to null to fall back to live data.
+const OFFICIAL_RESULT = {
+  year: 2026,
+  rank: 1,
+  tied: true,
+  tiedWith: "Drew Hutchins",
+  finalGifts: 465,
+  finalRaised: 161651,
+  prizeForCause: 25000,
+  closingTimeBonus: 5000,
+  cause: "Cutaneous Lymphoma Research Fund (Dr. Youn Kim)",
+  causeShort: "Cutaneous Lymphoma Research",
+};
 
 function tickCountdown() {
   const now       = Date.now();
