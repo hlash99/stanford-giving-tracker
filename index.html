@@ -544,7 +544,9 @@ function updateUI(data) {
 
 // ── Celebrations ─────────────────────────────────────────────────────
 let lastSeenRank = null;
-let endCelebrated = sessionStorage.getItem('jen-end-celebrated') === '1';
+// v3 — invalidate any stale "I already celebrated" flags from earlier versions
+// so the banner reflects the *actual* final standings, not a transient mid-flight rank.
+let lastEndedRank = parseInt(sessionStorage.getItem('jen-end-rank-v3') || '0', 10) || null;
 let leadingInterval = null;
 
 function startLeadingMode() {
@@ -681,12 +683,20 @@ function checkCelebrations(latest) {
   if (!eventOver && rank === 1) startLeadingMode();
   else                          stopLeadingMode();
 
-  // Event end: celebrate once per browser session
-  if (eventOver && !endCelebrated) {
-    endCelebrated = true;
-    sessionStorage.setItem('jen-end-celebrated', '1');
-    if (rank === 1) celebrateWin();
-    else            celebrateParticipation(rank, latest.target_gifts);
+  // Event end: fire the celebration matching the *current* final rank.
+  // If we already celebrated for a different rank (e.g. transient rank flip
+  // around the cutoff), re-fire with the corrected result.
+  if (eventOver) {
+    const finalKind = rank === 1 ? 1 : 0;   // 1 = win, 0 = participation
+    const lastKind  = lastEndedRank === 1 ? 1 : (lastEndedRank ? 0 : null);
+    if (lastKind === null || lastKind !== finalKind) {
+      lastEndedRank = rank;
+      sessionStorage.setItem('jen-end-rank-v3', String(rank));
+      // Stop any ongoing "leading" mode if rank settled at non-#1
+      if (rank !== 1) stopLeadingMode();
+      if (rank === 1) celebrateWin();
+      else            celebrateParticipation(rank, latest.target_gifts);
+    }
   }
 }
 
