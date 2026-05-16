@@ -559,6 +559,23 @@ function filterHistoryToYear(h, year) {
   });
 }
 
+// Detect whether Stanford has officially published the tie in their leaderboard.
+// Signal: Jen and the named tied-with party both appear with EQUAL gift counts.
+// (Stanford could update by bumping Jen up, Drew down, or splitting the diff —
+// any of those would manifest as matching counts.)
+function detectStanfordPublishedTie(liveLb) {
+  if (!liveLb || liveLb.length < 2) return null;
+  if (!(OFFICIAL_RESULT && OFFICIAL_RESULT.tied && OFFICIAL_RESULT.tiedWith)) return null;
+  const jen = liveLb.find(p => /varela/i.test(p.name));
+  const tiedLast = OFFICIAL_RESULT.tiedWith.split(' ').slice(-1)[0];   // last name
+  const other = liveLb.find(p => new RegExp(tiedLast, 'i').test(p.name));
+  if (!jen || !other) return null;
+  if (jen.gifts === other.gifts) {
+    return { jenGifts: jen.gifts, otherGifts: other.gifts };
+  }
+  return null;
+}
+
 function updateUI(data) {
   _lastFetchedData = data;
   // If the user is viewing an archived past year, swap in that year's frozen data
@@ -568,23 +585,28 @@ function updateUI(data) {
   if (isArchiveView) {
     const a = YEAR_ARCHIVES[activeYear];
     const filtered = filterHistoryToYear(data.history || [], activeYear);
-    // Append a synthetic final-state point so the cards/chart end on the
-    // official final numbers (Stanford's adjudicated totals can differ from
-    // our last-captured live poll by a few gifts).
-    const second = a.leaderboard.find(p => p.rank !== 1 && !/varela/i.test(p.name));
+    // If Stanford has caught up and published the tie (matching counts in their
+    // live leaderboard), prefer their adjudicated numbers; otherwise use the
+    // hardcoded archive values.
+    const stanfordTie = detectStanfordPublishedTie(data.leaderboard);
+    const useLb       = stanfordTie ? data.leaderboard.slice(0, 10) : a.leaderboard;
+    const finalGifts  = stanfordTie ? stanfordTie.jenGifts  : a.finalGifts;
+    const leaderGifts = stanfordTie ? stanfordTie.otherGifts : a.leaderGifts;
+    const second = useLb.find(p => p.rank !== 1 && !/varela/i.test(p.name)) ||
+                   a.leaderboard.find(p => p.rank !== 1 && !/varela/i.test(p.name));
     const finalPoint = {
       ts:           new Date(eventWindow(activeYear).end).toISOString(),
-      target_gifts: a.finalGifts,
-      leader_gifts: a.leaderGifts,
+      target_gifts: finalGifts,
+      leader_gifts: leaderGifts,
       leader_name:  a.leaderName,
       second_gifts: second ? second.gifts : null,
       second_name:  second ? second.name  : null,
-      delta:        a.leaderGifts - a.finalGifts,
+      delta:        leaderGifts - finalGifts,
       target_rank:  a.finalRank,
     };
     data = {
       history:     [...filtered, finalPoint],
-      leaderboard: a.leaderboard,
+      leaderboard: useLb,
     };
   }
 
@@ -724,9 +746,11 @@ function updateUI(data) {
     const isWin = r === 1;
     resEl.classList.toggle('win', isWin);
 
-    const finalGifts = OFFICIAL_RESULT ? OFFICIAL_RESULT.finalGifts : latest.target_gifts;
-    const leaderName = OFFICIAL_RESULT ? OFFICIAL_RESULT.tiedWith   : (latest.leader_name || '#1');
-    const gap        = OFFICIAL_RESULT ? 0                          : latest.delta;
+    // Prefer the synthesized final point's numbers (which already incorporate
+    // Stanford's published tie if detected) over the hardcoded OFFICIAL_RESULT.
+    const finalGifts = (isArchiveView || OFFICIAL_RESULT) ? latest.target_gifts : latest.target_gifts;
+    const leaderName = OFFICIAL_RESULT ? OFFICIAL_RESULT.tiedWith : (latest.leader_name || '#1');
+    const gap        = OFFICIAL_RESULT ? Math.max(0, latest.leader_gifts - latest.target_gifts) : latest.delta;
 
     document.getElementById('r-medal').textContent =
       tied   ? '🏆'
