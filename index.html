@@ -99,6 +99,29 @@ footer a:hover{color:#888}
 .photo-rain{position:fixed;inset:0;pointer-events:none;z-index:999;overflow:hidden}
 .photo-rain img{position:absolute;top:-220px;will-change:transform;filter:drop-shadow(0 6px 18px rgba(0,0,0,.35));border-radius:8px;user-select:none;-webkit-user-drag:none}
 
+/* year tabs */
+.year-tabs[hidden]{display:none!important}
+.year-tabs{display:flex;gap:6px;margin-bottom:18px;border-bottom:1px solid #252839;padding-bottom:0;flex-wrap:wrap}
+.year-tab{background:none;border:none;color:#666;font:600 .9rem/1 'Segoe UI',sans-serif;letter-spacing:.4px;padding:10px 18px;cursor:pointer;border-bottom:2px solid transparent;transition:color .2s,border-color .2s;margin-bottom:-1px}
+.year-tab:hover{color:#aaa}
+.year-tab.active{color:#fbbf24;border-bottom-color:#fbbf24}
+.year-tab.live::after{content:"●";color:#34d399;margin-left:6px;font-size:.7rem;animation:pulse 2s infinite}
+
+/* year-over-year comparison banner — only shown when current beats prior */
+.year-compare[hidden]{display:none!important}
+.year-compare{background:linear-gradient(135deg,rgba(52,211,153,.12),rgba(96,165,250,.12));border:1px solid rgba(52,211,153,.3);border-radius:12px;padding:14px 18px;margin-bottom:18px;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.year-compare .yc-emoji{font-size:1.6rem;line-height:1}
+.year-compare .yc-text{flex:1;min-width:200px;font-size:.92rem;color:#d4d8e4;line-height:1.45}
+.year-compare .yc-text b{color:#34d399;font-weight:800}
+.year-compare .yc-deltas{display:flex;gap:14px;flex-wrap:wrap}
+.year-compare .yc-delta{font-size:.78rem;color:#888}
+.year-compare .yc-delta b{color:#fff;font-weight:800;margin-right:3px}
+
+/* all-time raised badge */
+.all-time[hidden]{display:none!important}
+.all-time{display:inline-flex;align-items:center;gap:8px;background:rgba(251,191,36,.1);border:1px solid rgba(251,191,36,.25);border-radius:999px;padding:6px 14px;font-size:.8rem;color:#fde68a;margin-left:auto;flex-shrink:0}
+.all-time b{color:#fff;font-weight:800}
+
 /* results card — shows after the event ends */
 .results[hidden]{display:none!important}
 .results{background:linear-gradient(135deg,#1a1d27 0%,#1f1b3a 50%,#2a1f3a 100%);
@@ -212,12 +235,21 @@ body.is-leading{box-shadow:inset 0 0 0 3px rgba(251,191,36,.35)}
   </div>
   <div class="status-block">
     <span class="leading-badge" id="leading-badge">👑 LEADING</span>
+    <span class="all-time" id="all-time" hidden>All-time raised: <b id="all-time-amount">—</b></span>
     <span class="badge live" id="status-badge">● LIVE</span>
     <span class="refresh-note" id="refresh-note">—</span>
   </div>
 </header>
 
 <main>
+
+  <div class="year-tabs" id="year-tabs" hidden></div>
+
+  <div class="year-compare" id="year-compare" hidden>
+    <div class="yc-emoji" id="yc-emoji">📈</div>
+    <div class="yc-text" id="yc-text">—</div>
+    <div class="yc-deltas" id="yc-deltas"></div>
+  </div>
 
   <div class="results" id="results" hidden>
     <span class="results-medal" id="r-medal">🥈</span>
@@ -455,9 +487,101 @@ function buildCharts(history) {
   });
 }
 
+// ── Year tabs / archive / comparison / all-time helpers ──────────────
+let _lastFetchedData = null;
+
+function renderYearTabs() {
+  const years  = getSelectableYears();
+  const tabsEl = document.getElementById('year-tabs');
+  if (years.length < 2) { tabsEl.hidden = true; return; }
+  const ev = currentEvent();
+  tabsEl.hidden = false;
+  tabsEl.innerHTML = years.map(y => {
+    const isLive = ev.isLive && y === ev.year;
+    return `<button class="year-tab ${y === activeYear ? 'active' : ''}${isLive ? ' live' : ''}" data-year="${y}">${y}</button>`;
+  }).join('');
+  tabsEl.querySelectorAll('.year-tab').forEach(btn => {
+    btn.addEventListener('click', () => {
+      activeYear = +btn.dataset.year;
+      if (_lastFetchedData) updateUI(_lastFetchedData);
+    });
+  });
+}
+
+function renderAllTimeRaised(liveRaised) {
+  const el = document.getElementById('all-time');
+  const years = getSelectableYears();
+  if (years.length < 2) { el.hidden = true; return; }
+  let total = 0;
+  for (const y of Object.keys(YEAR_ARCHIVES)) total += YEAR_ARCHIVES[y].teamRaised || 0;
+  if (liveRaised != null) total += liveRaised;
+  el.hidden = false;
+  document.getElementById('all-time-amount').textContent =
+    total >= 1e6 ? '$' + (total/1e6).toFixed(2) + 'M'
+                  : '$' + Math.round(total).toLocaleString();
+}
+
+function renderComparison(latest, lb) {
+  const el = document.getElementById('year-compare');
+  const ev = currentEvent();
+  // Only relevant when viewing the live current year
+  if (!ev.isLive || activeYear !== ev.year) { el.hidden = true; return; }
+  // Find most recent prior archive
+  const priorYear = Object.keys(YEAR_ARCHIVES).map(Number)
+                      .filter(y => y < activeYear).sort((a,b) => b - a)[0];
+  if (!priorYear) { el.hidden = true; return; }
+  const prior = YEAR_ARCHIVES[priorYear];
+  const curGifts  = latest.target_gifts;
+  const jenRow    = (lb || []).find(p => /varela/i.test(p.name));
+  const curRaised = jenRow ? jenRow.raised : 0;
+  const dGifts  = curGifts  - prior.finalGifts;
+  const dRaised = curRaised - prior.teamRaised;
+  // Only show when current is doing better on gifts AND/OR raised
+  if (dGifts <= 0 && dRaised <= 0) { el.hidden = true; return; }
+  el.hidden = false;
+  const wins = [];
+  if (dGifts  > 0) wins.push('gifts');
+  if (dRaised > 0) wins.push('dollars raised');
+  document.getElementById('yc-emoji').textContent = '📈';
+  document.getElementById('yc-text').innerHTML =
+    `Ahead of <b>${priorYear}</b> on ${wins.join(' & ')} — Team Jen is on pace to top last year!`;
+  document.getElementById('yc-deltas').innerHTML =
+    (dGifts > 0 ? `<div class="yc-delta"><b>+${dGifts}</b>gifts</div>` : '') +
+    (dRaised > 0 ? `<div class="yc-delta"><b>+$${Math.round(dRaised).toLocaleString()}</b>raised</div>` : '');
+}
+
+// Filter history to a given event year's window (used when viewing an archived year)
+function filterHistoryToYear(h, year) {
+  const w = eventWindow(year);
+  return h.filter(p => {
+    const t = new Date(p.ts).getTime();
+    return t >= w.start && t <= w.end;
+  });
+}
+
 function updateUI(data) {
+  _lastFetchedData = data;
+  // If the user is viewing an archived past year, swap in that year's frozen data
+  const ev = currentEvent();
+  const isLiveYearView = ev.isLive && activeYear === ev.year;
+  const isArchiveView  = !isLiveYearView && YEAR_ARCHIVES[activeYear];
+  if (isArchiveView) {
+    const a = YEAR_ARCHIVES[activeYear];
+    data = {
+      history:     filterHistoryToYear(data.history || [], activeYear),
+      leaderboard: a.leaderboard,
+    };
+  }
+
   const h  = data.history || [];
   const lb = data.leaderboard || [];
+
+  // Tabs, all-time, comparison (independent of whether there's data)
+  renderYearTabs();
+  const jenRow = (lb || []).find(p => /varela/i.test(p.name));
+  renderAllTimeRaised(jenRow ? jenRow.raised : null);
+  if (h.length) renderComparison(h[h.length - 1], lb);
+
   if (!h.length) return;
 
   const latest = h[h.length - 1];
@@ -967,6 +1091,65 @@ function currentEvent() {
   return { ...eventWindow(y + 1), isLive: false, isPast: false };  // past — show next year's
 }
 const STANFORD_API = "https://dayofgiving.stanford.edu/ambassador_leaderboard/?entity_id=67217afd5aff7d247806bd0e&id=678773be4cf009577e8c454b&";
+
+// ── YEAR ARCHIVES ──────────────────────────────────────────────────────
+// Each year's final summary is preserved here so the page can show year tabs.
+// When a new year's event ends, add a new entry here (or via the auto-archive
+// workflow). The "all-time raised" stat sums teamRaised across every year.
+const YEAR_ARCHIVES = {
+  2026: {
+    year: 2026,
+    eventDates: "May 13–14, 2026",
+    finalRank: 1,
+    tied: true,
+    tiedWith: "Drew Hutchins",
+    finalGifts: 465,
+    teamRaised: 161651,
+    prizeForCause: 25000,
+    closingTimeBonus: 5000,
+    prizeWonTotal: 30000,
+    cause: "Cutaneous Lymphoma Research Fund (Dr. Youn Kim)",
+    causeShort: "Cutaneous Lymphoma Research",
+    siteGifts: 7495,
+    siteDonors: 5820,
+    siteRaised: 8303677,
+    leaderName: "Drew Hutchins",
+    leaderGifts: 467,
+    closingTimeWinner: "Christie Yiasemis · 4:59:59.442 PM PT",
+    leaderboard: [
+      { rank: 1, name: "Drew Hutchins",      campaign: "Stanford Athletics", gifts: 467, raised: 29766  },
+      { rank: 1, name: "Jennifer Varela",    campaign: "Stanford Medicine",  gifts: 465, raised: 161651 },
+      { rank: 3, name: "Dena Evans",         campaign: "Stanford Athletics", gifts: 353, raised: 38843  },
+      { rank: 4, name: "Kay Luo",            campaign: "Stanford Athletics", gifts: 282, raised: 22057  },
+      { rank: 5, name: "Maryka Trent Baraka",campaign: "Community Centers",  gifts: 102, raised: 24118  },
+      { rank: 6, name: "Jason Stinson",      campaign: "Stanford Athletics", gifts: 85,  raised: 14227  },
+      { rank: 7, name: "Donald Brewster",    campaign: "Stanford Athletics", gifts: 72,  raised: 17725  },
+      { rank: 8, name: "Scott Sellers",      campaign: "Stanford Athletics", gifts: 72,  raised: 13405  },
+      { rank: 9, name: "Tony Detter",        campaign: "Stanford Athletics", gifts: 58,  raised: 34702  },
+      { rank: 10,name: "Eric Reveno",        campaign: "Stanford Athletics", gifts: 38,  raised: 25949  },
+    ],
+  },
+  // ─── Future years: at each event end, add a new entry here ───────────
+  // e.g.,  2027: { year: 2027, eventDates: "May 12–13, 2027", finalRank: ..., ... }
+};
+
+// Returns selectable years in descending order — archives plus the current
+// year (when it's live). Tabs only show when this has 2+ entries.
+function getSelectableYears() {
+  const years = new Set(Object.keys(YEAR_ARCHIVES).map(Number));
+  const ev = currentEvent();
+  if (ev.isLive) years.add(ev.year);
+  return [...years].sort((a, b) => b - a);
+}
+
+// Active year is what the user is currently viewing. Defaults to the live
+// year when an event is running, otherwise the most recent archive.
+let activeYear = (() => {
+  const ev = currentEvent();
+  if (ev.isLive) return ev.year;
+  const archived = Object.keys(YEAR_ARCHIVES).map(Number).sort((a,b) => b - a);
+  return archived[0] || new Date().getUTCFullYear();
+})();
 
 // ── OFFICIAL 2026 RESULT OVERRIDE ──────────────────────────────────────
 // Stanford reviewed the timestamps on last-minute gifts and announced
