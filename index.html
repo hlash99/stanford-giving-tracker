@@ -567,8 +567,23 @@ function updateUI(data) {
   const isArchiveView  = !isLiveYearView && YEAR_ARCHIVES[activeYear];
   if (isArchiveView) {
     const a = YEAR_ARCHIVES[activeYear];
+    const filtered = filterHistoryToYear(data.history || [], activeYear);
+    // Append a synthetic final-state point so the cards/chart end on the
+    // official final numbers (Stanford's adjudicated totals can differ from
+    // our last-captured live poll by a few gifts).
+    const second = a.leaderboard.find(p => p.rank !== 1 && !/varela/i.test(p.name));
+    const finalPoint = {
+      ts:           new Date(eventWindow(activeYear).end).toISOString(),
+      target_gifts: a.finalGifts,
+      leader_gifts: a.leaderGifts,
+      leader_name:  a.leaderName,
+      second_gifts: second ? second.gifts : null,
+      second_name:  second ? second.name  : null,
+      delta:        a.leaderGifts - a.finalGifts,
+      target_rank:  a.finalRank,
+    };
     data = {
-      history:     filterHistoryToYear(data.history || [], activeYear),
+      history:     [...filtered, finalPoint],
       leaderboard: a.leaderboard,
     };
   }
