@@ -601,7 +601,7 @@ function updateUI(data) {
 
     document.getElementById('r-sub').innerHTML = tied
       ? `<b>Jen and ${leaderName} finished TIED for #1</b> with <b>${finalGifts} gifts each</b>.<br>` +
-        `<b>$${(OFFICIAL_RESULT.prizeForCause/1000).toFixed(0)}K</b> unlocked for the ${OFFICIAL_RESULT.cause}, plus a bonus <b>$${(OFFICIAL_RESULT.closingTimeBonus/1000).toFixed(0)}K</b> from the "Closing Time" challenge (4:59:59 PM donation!).`
+        `<b>$${(OFFICIAL_RESULT.prizeForCause/1000).toFixed(0)}K</b> unlocked for the ${OFFICIAL_RESULT.cause}, plus a bonus <b>$${(OFFICIAL_RESULT.closingTimeBonus/1000).toFixed(0)}K</b> from the "Closing Time" challenge (4:59:59.442 PM PT — 0.558 sec before the deadline!).`
       : isWin
         ? `She finished #1 with ${finalGifts} gifts — ahead of ${leaderName}.`
         : `Jen finished #${r} with ${finalGifts} gifts — ` +
