@@ -35,6 +35,31 @@ header .refresh-note{font-size:.78rem;color:rgba(255,255,255,.55)}
 .countdown.ended b{color:#fca5a5}
 .countdown.next-year{background:rgba(251,191,36,.18);box-shadow:0 0 0 1px rgba(251,191,36,.25) inset}
 .countdown.next-year b{color:#fde68a}
+
+/* ── COUNTDOWN URGENCY: ramp visuals as the deadline approaches ── */
+/* Last 30 min: amber tint, mild pulse */
+.countdown.urgency-30{background:rgba(245,158,11,.25);box-shadow:0 0 0 1px rgba(245,158,11,.4) inset;animation:countdownThrob 2.5s ease-in-out infinite}
+.countdown.urgency-30 b{color:#fcd34d}
+/* Last 5 min: red, faster pulse */
+.countdown.urgency-5{background:rgba(239,68,68,.3);box-shadow:0 0 16px rgba(239,68,68,.4),0 0 0 1px rgba(239,68,68,.55) inset;animation:countdownThrob 1.4s ease-in-out infinite}
+.countdown.urgency-5 b{color:#fecaca}
+/* Last 60 sec: deep red, hard pulse + per-second scale on seconds digit */
+.countdown.urgency-60s{background:rgba(220,38,38,.4);box-shadow:0 0 30px rgba(239,68,68,.6),0 0 0 1.5px #ef4444 inset;animation:countdownThrob .8s ease-in-out infinite}
+.countdown.urgency-60s b{color:#ffffff}
+.countdown.urgency-60s #cd-s{animation:secondTick 1s steps(1) infinite}
+@keyframes countdownThrob{0%,100%{transform:scale(1);filter:brightness(1)}50%{transform:scale(1.04);filter:brightness(1.25)}}
+@keyframes secondTick{0%,100%{color:#fff;text-shadow:0 0 18px #ef4444}50%{color:#fecaca}}
+/* Full-page red flash at <60s and <10s */
+body.deadline-near::after{content:"";position:fixed;inset:0;pointer-events:none;z-index:1;background:radial-gradient(ellipse at top,rgba(239,68,68,.18),transparent 60%);animation:edgeFlash 1.2s ease-in-out infinite}
+body.deadline-final::after{animation-duration:.6s;background:radial-gradient(ellipse at top,rgba(220,38,38,.35),transparent 50%)}
+@keyframes edgeFlash{0%,100%{opacity:.5}50%{opacity:1}}
+/* "FINAL MINUTES" call-to-action ribbon on the countdown */
+.urgency-cta{display:none;position:absolute;top:-9px;left:50%;transform:translateX(-50%);background:#ef4444;color:#fff;font-size:.62rem;font-weight:900;letter-spacing:1.2px;padding:2px 10px;border-radius:999px;text-transform:uppercase;white-space:nowrap;box-shadow:0 4px 14px rgba(239,68,68,.5)}
+.countdown.urgency-30 .urgency-cta{display:inline-block}
+.countdown.urgency-5  .urgency-cta{display:inline-block;background:#dc2626;animation:countdownThrob 1s ease-in-out infinite}
+.countdown.urgency-60s .urgency-cta{display:inline-block;background:#991b1b;animation:countdownThrob .6s ease-in-out infinite}
+/* Make the countdown box relative so the ribbon can absolute-position */
+.countdown{position:relative}
 .countdown-label{font-size:.62rem;font-weight:700;letter-spacing:1px;color:rgba(255,255,255,.7);text-transform:uppercase;margin-right:8px;align-self:center}
 .countdown-label[hidden]{display:none}
 
@@ -227,6 +252,7 @@ body.is-leading{box-shadow:inset 0 0 0 3px rgba(251,191,36,.35)}
     <div class="sub">Stanford Day of Giving · May 13–14, 2026</div>
   </div>
   <div class="countdown" id="countdown" aria-label="Time remaining">
+    <span class="urgency-cta" id="urgency-cta">Final minutes!</span>
     <span class="countdown-label" id="cd-label" hidden>To 2027</span>
     <span class="cd-cell"><b id="cd-d">--</b><i>D</i></span>
     <span class="cd-cell"><b id="cd-h">--</b><i>H</i></span>
@@ -1220,6 +1246,25 @@ function tickCountdown() {
   el.classList.toggle('next-year', eventOver);
   el.classList.toggle('ended', false);
   labelEl.hidden = !eventOver;
+
+  // ── Urgency tiers during live event ──
+  // Only escalate when the LIVE event is winding down (not when counting to next year).
+  const liveAndUrgent = !eventOver && ms > 0;
+  const u30  = liveAndUrgent && ms <= 30 * 60 * 1000;
+  const u5   = liveAndUrgent && ms <=  5 * 60 * 1000;
+  const u60s = liveAndUrgent && ms <=       60 * 1000;
+  el.classList.toggle('urgency-30',  u30  && !u5);
+  el.classList.toggle('urgency-5',   u5   && !u60s);
+  el.classList.toggle('urgency-60s', u60s);
+  document.body.classList.toggle('deadline-near',  u5   && !u60s);
+  document.body.classList.toggle('deadline-final', u60s);
+  const cta = document.getElementById('urgency-cta');
+  if (cta) {
+    cta.textContent =
+      u60s ? 'Final 60 seconds!' :
+      u5   ? 'Final 5 minutes!' :
+      u30  ? 'Final 30 minutes!' : '';
+  }
 
   if (ms <= 0) {
     document.getElementById('cd-d').textContent = '00';
