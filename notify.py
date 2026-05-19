@@ -73,6 +73,35 @@ def check_tie_published():
 
     jen  = next((p for p in ranked if 'varela'   in p['name'].lower()), None)
     drew = next((p for p in ranked if 'hutchins' in p['name'].lower()), None)
+
+    # If Jen's name vanished from Stanford's leaderboard (renamed, merged, or
+    # replaced), that's worth flagging on its own.
+    if not jen and drew:
+        if issue_exists("Jen no longer in Stanford"):
+            print("Jen-missing already notified — skipping")
+        else:
+            # Show whatever slot is at the same gift count as Jen's last known value (465)
+            slot = next((p for p in ranked if p['conversion'] == 465), None)
+            slot_desc = f"{slot['name']} ({slot['conversion']} gifts)" if slot else "(unknown)"
+            create_issue(
+                "Jen no longer in Stanford's leaderboard — possibly renamed/merged",
+                f"""## ⚠️ Heads-up: Jen Varela's entry is no longer in Stanford's public API
+
+The slot at 465 gifts (Jen's last known count) is now showing **{slot_desc}**.
+
+This likely means Stanford merged or renamed her ambassador profile while adjudicating the tie. Worth a check with Kat / the Day of Giving team:
+
+- Stanford API endpoint: https://dayofgiving.stanford.edu/ambassador_leaderboard/?entity_id=67217afd5aff7d247806bd0e&id=678773be4cf009577e8c454b&
+- Stanford leaderboard page: https://dayofgiving.stanford.edu/pages/challenges-and-leaderboards
+
+The tracker dashboard's archive view is still showing the tied-for-#1 result (since it's locked to the email Kat sent), so the public-facing site is unaffected.
+
+*Automated notification from `notify.yml`.*
+""",
+                labels=["notification","stanford-data"]
+            )
+        return  # Don't run the tie-match check below if Jen is missing
+
     if not (jen and drew):
         print("Tie check: Jen or Drew not in current top participants — skipping")
         return
