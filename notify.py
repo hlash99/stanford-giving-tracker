@@ -49,8 +49,8 @@ def issue_exists(title_substring):
 
 def create_issue(title, body, labels=None):
     cmd = ['gh', 'issue', 'create', '--repo', REPO, '--title', title, '--body', body]
-    if labels:
-        cmd += ['--label', ','.join(labels)]
+    # Labels intentionally omitted — gh fails if the label doesn't exist in the
+    # repo yet, and we don't want to require manual label setup.
     try:
         subprocess.run(cmd, check=True)
         print(f"[issue created] {title}")
