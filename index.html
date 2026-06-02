@@ -1184,6 +1184,16 @@ function currentEvent() {
     return { ...cur, isLive: now >= cur.start, isPast: false };
   return { ...eventWindow(y + 1), isLive: false, isPast: false };  // past — show next year's
 }
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║ ANNUAL UPDATE CHECKLIST (Stanford rebuilds the microsite yearly)   ║
+// ║ When the new event goes live, run `python discover_ids.py` and:    ║
+// ║   1. Update STANFORD_API below (new entity_id + id)                ║
+// ║   2. Update MEDICINE_SECTION_ID below (donor-feed section)         ║
+// ║   3. After the event ends, add a YEAR_ARCHIVES entry               ║
+// ║ Jen is matched by name (/varela/i) — verify she's still listed     ║
+// ║ that way; discover_ids.py prints her current name + id_string.     ║
+// ║ The notify.yml workflow emails you if any of these break.          ║
+// ╚══════════════════════════════════════════════════════════════════╝
 const STANFORD_API = "https://dayofgiving.stanford.edu/ambassador_leaderboard/?entity_id=67217afd5aff7d247806bd0e&id=678773be4cf009577e8c454b&";
 
 // ── Recent-donations ticker (Team Jen's cause = Stanford Medicine) ─────

@@ -165,6 +165,12 @@ def check_upcoming_event():
 
 The tracker at <https://hlash99.github.io/stanford-giving-tracker/> will automatically switch into live mode the moment the event opens.
 
+**Before/at kickoff, verify the IDs** (Stanford rebuilds the microsite yearly):
+```
+cd stanford-giving-tracker && python discover_ids.py
+```
+Paste any new `STANFORD_API` / `MEDICINE_SECTION_ID` into `index.html` + `notify.py`.
+
 Get ready to rally Team Jen! 💙
 
 - Stanford Day of Giving: <https://dayofgiving.stanford.edu/>
@@ -172,6 +178,72 @@ Get ready to rally Team Jen! 💙
 *This is an automated notification from the `notify.yml` workflow.*
 """,
         labels=["notification"]
+    )
+
+# ──────────────────────────────────────────────────────────────────────
+def check_leaderboard_url_health():
+    """Early-warning: from 7 days before the event through its end, verify the
+    configured leaderboard URL still works AND still contains Jen (by name).
+    Stanford rebuilds the microsite yearly, so the URL's `id` and Jen's listing
+    can change. If broken, file an issue pointing to discover_ids.py."""
+    now  = datetime.now(timezone.utc)
+    year = now.year
+    start, end = event_window(year)
+    if now >= end:
+        start, end = event_window(year + 1)
+    # Active window: 7 days before start through event end
+    if not (start - timedelta(days=7) <= now <= end):
+        print("Leaderboard-URL check: outside pre-event window — skipping")
+        return
+
+    problem = None
+    parts = []
+    try:
+        r = requests.get(API_URL, headers={"User-Agent": "Mozilla/5.0"}, timeout=15)
+        if r.status_code != 200:
+            problem = f"leaderboard URL returned HTTP {r.status_code}"
+        else:
+            parts = [p for p in r.json().get("show_participants", []) if not p.get("hide")]
+            if not parts:
+                problem = "leaderboard URL returned no participants"
+            elif not any('varela' in p['name'].lower() for p in parts):
+                names = ", ".join(f"{p['name']} ({p['conversion']})" for p in parts[:6])
+                problem = f"no participant matching 'Varela' found. Current top: {names}"
+    except Exception as e:
+        problem = f"leaderboard URL fetch failed: {e}"
+
+    if not problem:
+        print("Leaderboard-URL check: configured URL OK and Jen present")
+        return
+
+    if issue_exists("Leaderboard URL needs updating", state='open'):
+        print("Leaderboard-URL issue already filed — skipping")
+        return
+
+    create_issue(
+        f"Leaderboard URL needs updating for {start.year} — {problem.split('.')[0]}",
+        f"""## ⚠️ The configured Stanford leaderboard URL looks stale for {start.year}
+
+**Problem detected:** {problem}
+
+Stanford rebuilds the Day of Giving microsite each year, so the leaderboard
+API URL (its `id` param) and/or Jen's listing change. The dashboard's live
+mode depends on `STANFORD_API` being correct.
+
+**To fix (one command, run DURING the live event):**
+```
+cd stanford-giving-tracker
+pip install playwright requests && python -m playwright install chromium
+python discover_ids.py
+```
+That prints the new `STANFORD_API` and `MEDICINE_SECTION_ID` values to paste
+into **both** `index.html` and `notify.py`.
+
+- Configured URL: {API_URL}
+- Challenges page: https://dayofgiving.stanford.edu/pages/challenges-and-leaderboards
+
+*Automated notification from `notify.yml`.*
+"""
     )
 
 # ──────────────────────────────────────────────────────────────────────
@@ -321,5 +393,6 @@ Then commit the fix and close this issue. A new failure after closing will re-no
 if __name__ == "__main__":
     check_tie_published()
     check_upcoming_event()
+    check_leaderboard_url_health()
     check_donor_feed_health()
     check_workflow_failures()
