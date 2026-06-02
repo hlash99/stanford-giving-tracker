@@ -20,6 +20,11 @@ import requests
 REPO    = os.environ.get('GH_REPO', 'hlash99/stanford-giving-tracker')
 API_URL = ("https://dayofgiving.stanford.edu/ambassador_leaderboard/"
            "?entity_id=67217afd5aff7d247806bd0e&id=678773be4cf009577e8c454b&")
+# Stanford Medicine donor-feed section (powers the dashboard's "recent gifts"
+# ticker). Year-specific; this checker auto-discovers a replacement if it breaks.
+MEDICINE_SECTION_ID = "67eb8ee6c39c7ee6af304336"
+MEDICINE_PAGE = "https://dayofgiving.stanford.edu/pages/stanford-medicine"
+DONORS_API_TMPL = "https://dayofgiving.stanford.edu/microsite/api/sections/{}/donors?page=1&limit=5"
 
 # ──────────────────────────────────────────────────────────────────────
 def event_window(year):
@@ -170,6 +175,79 @@ Get ready to rally Team Jen! 💙
     )
 
 # ──────────────────────────────────────────────────────────────────────
+def discover_medicine_section_ids():
+    """Scrape the Stanford Medicine page for candidate section IDs.
+    Prefers IDs inside the sections.allIds list, then falls back to every
+    24-hex token on the page (the health check tests each against the feed)."""
+    try:
+        import re
+        html = requests.get(MEDICINE_PAGE, headers={"User-Agent": "Mozilla/5.0"}, timeout=15).text
+        ordered = []
+        m = re.search(r'"sections":\{"allIds":\[([^\]]*)\]', html)
+        if m:
+            ordered += re.findall(r'[a-f0-9]{24}', m.group(1))
+        # Append any other 24-hex IDs as fallback candidates (dedup, keep order)
+        for tok in re.findall(r'[a-f0-9]{24}', html):
+            if tok not in ordered:
+                ordered.append(tok)
+        return ordered
+    except Exception as e:
+        print(f"[section discovery error] {e}", file=sys.stderr)
+        return []
+
+def feed_count(section_id):
+    try:
+        j = requests.get(DONORS_API_TMPL.format(section_id),
+                         headers={"User-Agent": "Mozilla/5.0"}, timeout=15).json()
+        return len(j.get('donations', []))
+    except Exception:
+        return 0
+
+def check_donor_feed_health():
+    """During a live event, ensure the configured Medicine donor feed still
+    returns data. If not, auto-discover the new section ID and file an issue so
+    the dashboard's MEDICINE_SECTION_ID can be updated."""
+    now  = datetime.now(timezone.utc)
+    year = now.year
+    start, end = event_window(year)
+    is_live = start <= now <= end
+    if not is_live:
+        print("Donor-feed check: not in live window — skipping")
+        return
+
+    if feed_count(MEDICINE_SECTION_ID) > 0:
+        print("Donor-feed check: configured section returning data — OK")
+        return
+
+    if issue_exists("Donor feed broken", state='open'):
+        print("Donor-feed breakage already filed — skipping")
+        return
+
+    # Try to find a working replacement
+    candidates = discover_medicine_section_ids()
+    working = [c for c in candidates if feed_count(c) > 0]
+    fix_hint = (f"Auto-discovered working section ID(s): **{', '.join(working)}**\n\n"
+                f"Update `MEDICINE_SECTION_ID` in both `index.html` and `notify.py` to `{working[0]}`."
+                if working else
+                "Could not auto-discover a replacement. Inspect the Stanford Medicine page network "
+                "tab for the current `/microsite/api/sections/<ID>/donors` endpoint.")
+
+    create_issue(
+        "Donor feed broken — recent-gifts ticker is down during live event",
+        f"""## ⚠️ The Stanford Medicine donor feed stopped returning data
+
+The configured section ID `{MEDICINE_SECTION_ID}` returned **0 donations** during the live event window. The "Recent Gifts to Team Jen's Cause" ticker on the dashboard is currently empty.
+
+{fix_hint}
+
+- Medicine page: {MEDICINE_PAGE}
+- Current feed URL: {DONORS_API_TMPL.format(MEDICINE_SECTION_ID)}
+
+*Automated notification from `notify.yml`.*
+"""
+    )
+
+# ──────────────────────────────────────────────────────────────────────
 def check_workflow_failures():
     """If any workflow has failed multiple times in the last 24h, open an issue
     so a future Claude Code session (or you) can spot it and fix it without
@@ -243,4 +321,5 @@ Then commit the fix and close this issue. A new failure after closing will re-no
 if __name__ == "__main__":
     check_tie_published()
     check_upcoming_event()
+    check_donor_feed_health()
     check_workflow_failures()

@@ -89,6 +89,27 @@ main{padding:16px;padding-left:max(16px,env(safe-area-inset-left));padding-right
 /* leaderboard */
 .lb-box{background:#1a1d27;border-radius:12px;padding:16px;border:1px solid #252839;margin-bottom:20px}
 .lb-box h2{font-size:.68rem;text-transform:uppercase;letter-spacing:1px;color:#555;margin-bottom:12px}
+
+/* recent-donations ticker */
+.donors-box[hidden]{display:none!important}
+.donors-box{background:#1a1d27;border-radius:12px;padding:16px;border:1px solid #252839;margin-bottom:20px}
+.donors-box h2{font-size:.68rem;text-transform:uppercase;letter-spacing:1px;color:#555;margin-bottom:4px;display:flex;align-items:center;gap:8px}
+.donors-box .dn-sub{font-size:.7rem;color:#444;margin-bottom:12px}
+.dn-live-dot{width:7px;height:7px;border-radius:50%;background:#34d399;display:inline-block;animation:pulse 2s infinite}
+.dn-list{list-style:none;margin:0;padding:0;position:relative;overflow:hidden}
+.dn-item{display:flex;align-items:center;gap:12px;padding:11px 10px;border-top:1px solid #1e2130;animation:dnSlideIn .55s cubic-bezier(.2,.7,.3,1)}
+.dn-item:first-child{border-top:none}
+.dn-item.dn-new{background:linear-gradient(90deg,rgba(52,211,153,.14),transparent);border-radius:8px}
+@keyframes dnSlideIn{from{opacity:0;transform:translateY(-12px)}to{opacity:1;transform:translateY(0)}}
+.dn-avatar{width:34px;height:34px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:.82rem;color:#0f1117;background:linear-gradient(135deg,#60a5fa,#a78bfa)}
+.dn-main{flex:1;min-width:0}
+.dn-name{font-size:.9rem;font-weight:600;color:#e8eaf0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dn-fund{font-size:.74rem;color:#666;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dn-right{text-align:right;flex-shrink:0}
+.dn-amount{font-size:.92rem;font-weight:800;color:#34d399}
+.dn-amount.hidden-amt{color:#60a5fa;font-size:.8rem;font-weight:600}
+.dn-time{font-size:.68rem;color:#555;margin-top:2px}
+@media(max-width:600px){.dn-fund{max-width:46vw}.dn-name{max-width:46vw}}
 .table-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
 table{width:100%;border-collapse:collapse;min-width:380px}
 th{font-size:.68rem;text-transform:uppercase;letter-spacing:.8px;color:#444;text-align:left;padding:5px 8px;white-space:nowrap}
@@ -374,6 +395,12 @@ body.is-leading{box-shadow:inset 0 0 0 3px rgba(251,191,36,.35)}
       <tbody id="lb-body"></tbody>
     </table>
     </div>
+  </div>
+
+  <div class="donors-box" id="donors-box" hidden>
+    <h2><span class="dn-live-dot" id="dn-dot"></span> Recent Gifts to Team Jen's Cause</h2>
+    <div class="dn-sub" id="dn-sub">Stanford Medicine · latest 5 donations</div>
+    <ul class="dn-list" id="dn-list"></ul>
   </div>
 
 </main>
@@ -1110,6 +1137,8 @@ async function load() {
     badge.textContent = '⚠ offline';
     badge.style.background = 'rgba(248,113,113,.25)';
   }
+  // Donor ticker refreshes independently so a feed hiccup never breaks the dashboard
+  refreshDonors();
 }
 
 // Adaptive polling: 10s normally, 2s when <5min remaining in the live event,
@@ -1156,6 +1185,88 @@ function currentEvent() {
   return { ...eventWindow(y + 1), isLive: false, isPast: false };  // past — show next year's
 }
 const STANFORD_API = "https://dayofgiving.stanford.edu/ambassador_leaderboard/?entity_id=67217afd5aff7d247806bd0e&id=678773be4cf009577e8c454b&";
+
+// ── Recent-donations ticker (Team Jen's cause = Stanford Medicine) ─────
+// Stanford has no per-ambassador donor feed, so we use the Stanford Medicine
+// microsite SECTION feed (Jen's campaign). The section ID is year-specific;
+// if it changes for a new year, update MEDICINE_SECTION_ID below. The notify
+// workflow alerts if this feed stops returning data during a live event.
+const MEDICINE_SECTION_ID = "67eb8ee6c39c7ee6af304336";
+const DONORS_API = `https://dayofgiving.stanford.edu/microsite/api/sections/${MEDICINE_SECTION_ID}/donors`;
+let _lastTopDonorId = null;   // for detecting brand-new gifts to animate
+
+async function fetchRecentDonations(limit = 5) {
+  const r = await fetch(`${DONORS_API}?page=1&limit=${limit}&t=${Date.now()}`);
+  if (!r.ok) throw new Error('donors ' + r.status);
+  const j = await r.json();
+  return (j.donations || []).slice(0, limit);
+}
+
+function timeAgo(iso) {
+  const sec = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
+  if (sec < 0)    return 'just now';
+  if (sec < 60)   return sec + 's ago';
+  if (sec < 3600) return Math.floor(sec / 60) + 'm ago';
+  if (sec < 86400)return Math.floor(sec / 3600) + 'h ago';
+  const days = Math.floor(sec / 86400);
+  if (days < 7)   return days + 'd ago';
+  // Older than a week — show a date instead of an unwieldy "412d ago"
+  return new Date(iso).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+function initials(name) {
+  if (!name) return '🎁';
+  const parts = name.trim().split(/\s+/);
+  return ((parts[0]?.[0] || '') + (parts[1]?.[0] || '')).toUpperCase() || '🎁';
+}
+
+function renderDonors(donations) {
+  const box = document.getElementById('donors-box');
+  if (!donations || !donations.length) { box.hidden = true; return; }
+  box.hidden = false;
+
+  // Adapt the header to whether the event is live right now
+  const live = currentEvent().isLive;
+  document.getElementById('dn-dot').style.display = live ? 'inline-block' : 'none';
+  document.getElementById('dn-sub').textContent = live
+    ? "Stanford Medicine · latest 5 donations · live"
+    : `Stanford Medicine · most recent donations`;
+
+  const topId = donations[0].id || donations[0]._id?.$oid || donations[0].c_at;
+  const isNewTop = _lastTopDonorId && topId !== _lastTopDonorId;
+  _lastTopDonorId = topId;
+
+  document.getElementById('dn-list').innerHTML = donations.map((d, i) => {
+    const name   = d.card_display_name || 'Anonymous';
+    const fund   = d.campaign_name || 'Stanford Medicine';
+    const amt    = d.amount;
+    const hidden = d.hide_amount || amt == null;
+    const amtHtml = hidden
+      ? `<div class="dn-amount hidden-amt">Gift 💙</div>`
+      : `<div class="dn-amount">$${Number(amt).toLocaleString()}</div>`;
+    const newCls = (i === 0 && isNewTop) ? ' dn-new' : '';
+    return `<li class="dn-item${newCls}">
+      <div class="dn-avatar">${initials(d.card_display_name)}</div>
+      <div class="dn-main">
+        <div class="dn-name">${name}</div>
+        <div class="dn-fund">${fund}</div>
+      </div>
+      <div class="dn-right">
+        ${amtHtml}
+        <div class="dn-time">${timeAgo(d.c_at)}</div>
+      </div>
+    </li>`;
+  }).join('');
+}
+
+async function refreshDonors() {
+  try {
+    renderDonors(await fetchRecentDonations(5));
+  } catch (e) {
+    console.warn('donor feed failed (hiding ticker):', e);
+    document.getElementById('donors-box').hidden = true;
+  }
+}
 
 // ── YEAR ARCHIVES ──────────────────────────────────────────────────────
 // Each year's final summary is preserved here so the page can show year tabs.
