@@ -8,16 +8,12 @@ on:
 permissions:
   contents: write
 
-env:
-  # Silence the "Node.js 20 actions deprecated" warning — opts the runner into Node 24 now.
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
-
 jobs:
   fetch:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout data branch
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           ref: data
 
@@ -26,7 +22,7 @@ jobs:
           git fetch origin main --depth=1
           git checkout origin/main -- fetch.py
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
 

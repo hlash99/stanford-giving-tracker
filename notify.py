@@ -31,11 +31,12 @@ def event_window(year):
     end   = datetime(year, 5, wed_date + 2,  0, 0, 0, tzinfo=timezone.utc)
     return start, end
 
-def issue_exists(title_substring):
-    """Return True if an open or closed issue contains the given title substring."""
+def issue_exists(title_substring, state='all'):
+    """Return True if an issue contains the given title substring.
+    Use state='open' to allow re-notification after the user closes the issue."""
     try:
         r = subprocess.run(
-            ['gh', 'issue', 'list', '--repo', REPO, '--state', 'all',
+            ['gh', 'issue', 'list', '--repo', REPO, '--state', state,
              '--limit', '200', '--json', 'title'],
             capture_output=True, text=True, check=True
         )
@@ -169,6 +170,77 @@ Get ready to rally Team Jen! 💙
     )
 
 # ──────────────────────────────────────────────────────────────────────
+def check_workflow_failures():
+    """If any workflow has failed multiple times in the last 24h, open an issue
+    so a future Claude Code session (or you) can spot it and fix it without
+    needing the failure email. Only checks OPEN issues for dedup, so once you
+    close the issue (signaling 'fixed'), a future failure can re-notify."""
+    cutoff = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
+    try:
+        r = subprocess.run(
+            ['gh', 'run', 'list', '--repo', REPO, '--limit', '100',
+             '--json', 'name,conclusion,createdAt,databaseId,url,workflowName'],
+            capture_output=True, text=True, check=True
+        )
+        runs = json.loads(r.stdout or '[]')
+    except Exception as e:
+        print(f"[workflow check fetch error] {e}", file=sys.stderr)
+        return
+
+    recent = [x for x in runs if (x.get('createdAt') or '') >= cutoff]
+    if not recent:
+        print("Workflow check: no runs in last 24h — skipping")
+        return
+
+    by_wf = {}
+    for x in recent:
+        name = x.get('workflowName') or x.get('name') or '?'
+        by_wf.setdefault(name, []).append(x)
+
+    for wf_name, wf_runs in by_wf.items():
+        if wf_name == 'Notifications':
+            continue   # don't notify about ourselves to avoid loops
+        fails = [x for x in wf_runs if x.get('conclusion') == 'failure']
+        total = len(wf_runs)
+        if not fails:
+            continue
+        fail_pct = len(fails) / total if total else 0
+        if fail_pct < 0.5 and len(fails) < 3:
+            print(f"Workflow check: '{wf_name}' had {len(fails)}/{total} fails — within tolerance")
+            continue
+
+        key = f"Workflow '{wf_name}' failing"
+        if issue_exists(key, state='open'):
+            print(f"Workflow '{wf_name}' failure already filed — skipping")
+            continue
+
+        latest = fails[0]
+        sample_urls = '\n'.join(f"- {f.get('url','?')}" for f in fails[:5])
+        create_issue(
+            f"{key} — {len(fails)}/{total} runs in last 24h",
+            f"""## ⚠️ Workflow `{wf_name}` is failing repeatedly
+
+**{len(fails)} of {total}** runs in the last 24 hours failed ({fail_pct*100:.0f}%).
+
+Latest failure: {latest.get('url','?')}
+
+Recent failure URLs:
+{sample_urls}
+
+**To address from a Claude Code session:**
+```
+gh run list --repo {REPO} --workflow="{wf_name}" --status failure --limit 3
+gh run view <RUN_ID> --repo {REPO} --log-failed
+```
+
+Then commit the fix and close this issue. A new failure after closing will re-notify.
+
+*Automated notification from `notify.yml`.*
+"""
+        )
+
+# ──────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     check_tie_published()
     check_upcoming_event()
+    check_workflow_failures()
