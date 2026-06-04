@@ -5,6 +5,7 @@ import json
 import os
 import re
 import sys
+import time
 from datetime import datetime, timezone
 
 import requests
@@ -16,9 +17,36 @@ TARGET_NAME  = "Jen Varela"     # display only
 TARGET_MATCH = "varela"         # case-insensitive substring match on API name
 DATA_FILE   = os.path.join(os.path.dirname(__file__), "data.json")
 
+# Browser-like headers — Stanford intermittently 403s plain/datacenter requests.
+HEADERS = {
+    "User-Agent": ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                   "AppleWebKit/537.36 (KHTML, like Gecko) "
+                   "Chrome/126.0.0.0 Safari/537.36"),
+    "Accept": "application/json, text/plain, */*",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Referer": "https://dayofgiving.stanford.edu/pages/challenges-and-leaderboards",
+}
+
+def robust_get(url, timeout=15, retries=4):
+    """GET with browser headers + exponential backoff on transient errors (403/429/5xx)."""
+    last = None
+    for i in range(retries):
+        try:
+            r = requests.get(url, headers=HEADERS, timeout=timeout)
+            if r.status_code in (403, 429) or r.status_code >= 500:
+                last = requests.exceptions.HTTPError(f"{r.status_code} for {url}")
+                time.sleep(2 ** i)          # 1s, 2s, 4s, 8s
+                continue
+            r.raise_for_status()
+            return r
+        except requests.exceptions.RequestException as e:
+            last = e
+            time.sleep(2 ** i)
+    raise last
+
 def fetch_site_totals():
     try:
-        html = requests.get(HOME_URL, headers={"User-Agent": "Mozilla/5.0"}, timeout=15).text
+        html = robust_get(HOME_URL).text
         def grab(key, cast=int):
             m = re.search(rf'"{key}"\s*:\s*([\d.]+)', html)
             return cast(float(m.group(1))) if m else None
@@ -32,8 +60,15 @@ def fetch_site_totals():
         return {"site_gifts": None, "site_donors": None, "site_raised": None}
 
 def main():
-    r = requests.get(API_URL, headers={"User-Agent": "Mozilla/5.0"}, timeout=15)
-    r.raise_for_status()
+    try:
+        r = robust_get(API_URL)
+    except Exception as e:
+        # Stanford is briefly blocking us (403/429) or unreachable. This is a
+        # best-effort backup poller — a single missed cycle is harmless, the
+        # next cron / the local tracker will catch up. Exit cleanly so the
+        # workflow doesn't email a failure for a transient block.
+        print(f"Leaderboard fetch failed after retries ({e}) — skipping this cycle.", file=sys.stderr)
+        sys.exit(0)
     participants = r.json().get("show_participants", [])
     ranked = sorted([p for p in participants if not p.get("hide")],
                     key=lambda p: -p["conversion"])
