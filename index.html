@@ -355,12 +355,12 @@ body.is-leading{box-shadow:inset 0 0 0 3px rgba(251,191,36,.35)}
     <div class="card c-rank">
       <div class="lbl">Jen's Rank</div>
       <div class="val" id="c-rank">—</div>
-      <div class="hint">current position</div>
+      <div class="hint" id="c-rank-hint">current position</div>
     </div>
     <div class="card c-rate">
       <div class="lbl">Jen's Rate</div>
       <div class="val" id="c-rate">—</div>
-      <div class="hint">gifts/hr · last 60 min</div>
+      <div class="hint" id="c-rate-hint">gifts/hr · last 60 min</div>
     </div>
     <div class="card c-eta">
       <div class="lbl">ETA to #1 / #2</div>
@@ -381,7 +381,7 @@ body.is-leading{box-shadow:inset 0 0 0 3px rgba(251,191,36,.35)}
   </div>
 
   <div class="lb-box">
-    <h2>Live Top 10 Leaderboard</h2>
+    <h2 id="lb-title">Live Top 10 Leaderboard</h2>
     <div class="table-scroll">
     <table>
       <thead>
@@ -654,7 +654,9 @@ function updateUI(data) {
       leader_name:  a.leaderName,
       second_gifts: second ? second.gifts : null,
       second_name:  second ? second.name  : null,
-      delta:        leaderGifts - finalGifts,
+      // An adjudicated tie is officially a gap of 0 — don't show "N behind"
+      // next to the "TIE FOR #1" banner just because the raw API counts differ.
+      delta:        a.tied ? 0 : leaderGifts - finalGifts,
       target_rank:  a.finalRank,
     };
     data = {
@@ -700,8 +702,15 @@ function updateUI(data) {
   document.getElementById('c-ldr').textContent = latest.leader_gifts;
   document.getElementById('c-ldr-name').textContent = latest.leader_name;
 
-  // Rank card
-  document.getElementById('c-rank').textContent = '#' + (latest.target_rank || '?');
+  // Rank card — once the event is over these cards describe the final state,
+  // not a "current position" (which read as live weeks after the finish).
+  const finalView = isArchiveView || !ev.isLive;
+  const archTied  = YEAR_ARCHIVES[activeYear] && YEAR_ARCHIVES[activeYear].tied;
+  document.getElementById('c-rank').textContent =
+    (finalView && archTied && latest.target_rank === 1) ? 'T-#1' : '#' + (latest.target_rank || '?');
+  document.getElementById('c-rank-hint').textContent = finalView ? 'final rank' : 'current position';
+  document.getElementById('c-rate-hint').textContent =
+    finalView ? 'gifts/hr · final hour of the event' : 'gifts/hr · last 60 min';
 
   // Rate & ETA — use all points within last 60 min
   const cutoff = new Date(latest.ts).getTime() - 60 * 60 * 1000;
@@ -763,6 +772,16 @@ function updateUI(data) {
   } else {
     eta2El.textContent = '—';
   }
+
+  // Post-event there is no ETA — a "17 min to #1" projection weeks after the
+  // finish is nonsense. Show the checkered flag instead.
+  if (finalView) {
+    document.getElementById('c-eta').textContent = '🏁';
+    eta2El.textContent = '—';
+    document.getElementById('c-eta-hint').textContent = 'event finished';
+  }
+  document.getElementById('lb-title').textContent =
+    finalView ? 'Final Top 10 Leaderboard' : 'Live Top 10 Leaderboard';
 
   // Leaderboard table — apply official tie override if Stanford has declared one.
   // Both Jen and Drew get rank 1 (gold), and the rest shift down (1, 1, 3, 4...).
@@ -1128,8 +1147,8 @@ async function load() {
       // Off-season / pre-event / post-event: just show history from data branch
       data = await fetchHistory();
       lastHistory = data;
-      badge.textContent = '● LIVE';
-      badge.style.background = 'rgba(52,211,153,.25)';
+      badge.textContent = '🏁 FINAL';
+      badge.style.background = 'rgba(251,191,36,.22)';
     }
     updateUI(data);
   } catch (e) {
@@ -1153,13 +1172,18 @@ function rescheduleLoad() {
     const remaining = ev.end - now;
     next = remaining < 5 * 60 * 1000 ? 2000 : 10000;     // crunch-time mode
   } else {
-    next = 60000;                                         // off-season — slow poll
+    // Off-season nothing changes until next May — poll every 10 min instead of
+    // hammering the data branch every 60s. Tighten to 60s in the final hour
+    // before kickoff so the switch into live mode isn't missed.
+    const toStart = ev.start - now;
+    next = (toStart > 0 && toStart < 3600 * 1000) ? 60000 : 600000;
   }
   loadTimer = setTimeout(async () => { await load(); rescheduleLoad(); }, next);
   const note = document.getElementById('refresh-note');
   if (note) note.textContent =
-    next < 5000 ? `crunch mode · refreshes every ${(next/1000)|0}s`
-                 : `refreshes every ${(next/1000)|0}s`;
+    next < 5000    ? `crunch mode · refreshes every ${(next/1000)|0}s`
+    : next < 120000 ? `refreshes every ${(next/1000)|0}s`
+                    : `refreshes every ${(next/60000)|0} min`;
 }
 
 // ── Event window helpers (dynamic — works year over year) ───────────
