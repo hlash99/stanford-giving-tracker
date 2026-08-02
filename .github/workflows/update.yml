@@ -54,7 +54,15 @@ jobs:
             # does. So stamp a weekly heartbeat to keep the schedule alive
             # through the off-season and into next May.
             now=$(date -u +%s)
-            last=$(date -u -d "$(cat .heartbeat 2>/dev/null)" +%s 2>/dev/null || echo 0)
+            # NB: GNU `date -d ""` resolves to *now* rather than failing, so an
+            # absent or empty .heartbeat must be caught explicitly — otherwise
+            # it reads as "0 days old" and the heartbeat never fires at all.
+            last_raw=$(cat .heartbeat 2>/dev/null || true)
+            if [ -z "$last_raw" ]; then
+              last=0
+            else
+              last=$(date -u -d "$last_raw" +%s 2>/dev/null || echo 0)
+            fi
             age_days=$(( (now - last) / 86400 ))
             if [ "$age_days" -lt 7 ]; then
               echo "No data changes; heartbeat is ${age_days}d old — nothing to do"
