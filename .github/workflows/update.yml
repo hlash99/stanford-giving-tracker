@@ -45,13 +45,27 @@ jobs:
           git restore --staged fetch.py 2>/dev/null || true
           rm -f fetch.py
 
-          # If nothing changed, exit cleanly
           git add data.json
           if git diff --cached --quiet; then
-            echo "No data changes to commit"
-            exit 0
+            # No data change — every off-season run lands here. Exiting now
+            # would leave the repo with zero commits for months, and GitHub
+            # disables cron schedules after 60 days of repository inactivity.
+            # A workflow *running* does not reset that clock; only a commit
+            # does. So stamp a weekly heartbeat to keep the schedule alive
+            # through the off-season and into next May.
+            now=$(date -u +%s)
+            last=$(date -u -d "$(cat .heartbeat 2>/dev/null)" +%s 2>/dev/null || echo 0)
+            age_days=$(( (now - last) / 86400 ))
+            if [ "$age_days" -lt 7 ]; then
+              echo "No data changes; heartbeat is ${age_days}d old — nothing to do"
+              exit 0
+            fi
+            date -u +"%Y-%m-%dT%H:%M:%SZ" > .heartbeat
+            git add .heartbeat
+            git commit -m "chore: weekly heartbeat — keeps Actions cron alive [skip ci]"
+          else
+            git commit -m "data: ci backup update"
           fi
-          git commit -m "data: ci backup update"
 
           # Retry with rebase to handle the local-tracker race condition
           for i in 1 2 3; do
