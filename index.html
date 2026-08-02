@@ -1186,18 +1186,30 @@ function rescheduleLoad() {
                     : `refreshes every ${(next/60000)|0} min`;
 }
 
-// ── Event window helpers (dynamic — works year over year) ───────────
-// Stanford Day of Giving = 2nd Wednesday-Thursday of May, 36-hour window.
-// Confirmed pattern: 2025 = May 14-15, 2026 = May 13-14, both 5am PT Wed → 5pm PT Thu.
-// PDT in May = UTC-7, so 5am PT Wed = 12:00 UTC Wed; 5pm PT Thu = 00:00 UTC Fri.
+// ── Event window helpers ─────────────────────────────────────────────
+// Stanford Day of Giving is always a 36-hour window (5am PT day 1 → 5pm PT
+// day 2), but the CALENDAR SLOT IS NOT A STABLE RULE. Announced dates:
+//   2025 — Wed May 14 → Thu May 15   (2nd Wednesday)
+//   2026 — Wed May 13 → Thu May 14   (2nd Wednesday)
+//   2027 — Thu May  6 → Fri May  7   (1st Thursday — breaks the pattern)
+// So confirmed dates are listed explicitly here; the weekday heuristic is
+// only a placeholder for years Stanford hasn't announced yet.
+// PDT in May = UTC-7, so 5am PT = 12:00 UTC same day, 5pm PT = 00:00 UTC next day.
+const EVENT_START_DAY = { 2025: 14, 2026: 13, 2027: 6 };   // May day-of-month, day 1
+
 function eventWindow(year) {
-  const may1Dow = new Date(Date.UTC(year, 4, 1)).getUTCDay();   // 0=Sun..6=Sat
-  const wedOffset = (3 - may1Dow + 7) % 7;                       // days from May 1 → first Wed
-  const wedDate = 1 + wedOffset + 7;                             // date of 2nd Wed
+  let day = EVENT_START_DAY[year];
+  const confirmed = day !== undefined;
+  if (!confirmed) {
+    // Unannounced year — fall back to the 2nd Wednesday as a rough guess.
+    const may1Dow = new Date(Date.UTC(year, 4, 1)).getUTCDay();  // 0=Sun..6=Sat
+    day = 1 + ((3 - may1Dow + 7) % 7) + 7;
+  }
   return {
     year,
-    start: Date.UTC(year, 4, wedDate,      12, 0, 0),            // 5am PT Wed
-    end:   Date.UTC(year, 4, wedDate + 2,   0, 0, 0),            // 5pm PT Thu (=midnight UTC Fri)
+    confirmed,
+    start: Date.UTC(year, 4, day,     12, 0, 0),                 // 5am PT day 1
+    end:   Date.UTC(year, 4, day + 2,  0, 0, 0),                 // 5pm PT day 2 (=midnight UTC)
   };
 }
 function currentEvent() {
@@ -1340,7 +1352,7 @@ const YEAR_ARCHIVES = {
     ],
   },
   // ─── Future years: at each event end, add a new entry here ───────────
-  // e.g.,  2027: { year: 2027, eventDates: "May 12–13, 2027", finalRank: ..., ... }
+  // e.g.,  2027: { year: 2027, eventDates: "May 6–7, 2027", finalRank: ..., ... }
 };
 
 // Returns selectable years in descending order — archives plus the current
@@ -1389,8 +1401,18 @@ function tickCountdown() {
   const el      = document.getElementById('countdown');
   const labelEl = document.getElementById('cd-label');
   el.classList.toggle('next-year', eventOver);
-  el.classList.toggle('ended', false);
   labelEl.hidden = !eventOver;
+  if (eventOver) {
+    // Name the actual target date, so a wrong date is obvious at a glance
+    // instead of hiding behind a bare "To 2027".
+    const d = new Date(ev.start).toLocaleDateString([], {
+      month: 'short', day: 'numeric', year: 'numeric', timeZone: 'America/Los_Angeles',
+    });
+    labelEl.textContent = ev.confirmed ? `To ${d}` : `To ${d} (est.)`;
+    labelEl.title = ev.confirmed
+      ? `Stanford Day of Giving ${ev.year} — announced date`
+      : `Stanford hasn't announced ${ev.year} yet; this is a placeholder estimate.`;
+  }
 
   // ── Urgency tiers during live event ──
   // Only escalate when the LIVE event is winding down (not when counting to next year).
@@ -1428,10 +1450,27 @@ function tickCountdown() {
   document.getElementById('cd-m').textContent = pad(m);
   document.getElementById('cd-s').textContent = pad(s);
 }
-tickCountdown();
-setInterval(tickCountdown, 1000);
+// This page tends to sit open for months between events, so don't run a 1s
+// timer and a background poll in a tab nobody is looking at. Both stop when
+// the tab is hidden and resync immediately when it comes back.
+let cdTimer = null;
+function startCountdown() {
+  if (cdTimer) return;
+  tickCountdown();
+  cdTimer = setInterval(tickCountdown, 1000);
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) {
+    clearInterval(cdTimer); cdTimer = null;
+    clearTimeout(loadTimer); loadTimer = null;
+  } else {
+    startCountdown();
+    load().then(rescheduleLoad);
+  }
+});
 
 // Initial load, then adaptive polling (fast in last 5 min, slow off-season)
+startCountdown();
 load().then(rescheduleLoad);
 </script>
 </body>

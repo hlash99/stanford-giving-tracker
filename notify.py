@@ -27,13 +27,21 @@ MEDICINE_PAGE = "https://dayofgiving.stanford.edu/pages/stanford-medicine"
 DONORS_API_TMPL = "https://dayofgiving.stanford.edu/microsite/api/sections/{}/donors?page=1&limit=5"
 
 # ──────────────────────────────────────────────────────────────────────
+# Announced start dates (May day-of-month). Stanford does NOT keep a stable
+# weekday slot — 2025 and 2026 were the 2nd Wednesday, but 2027 is Thu May 6.
+# Keep this in sync with EVENT_START_DAY in index.html.
+EVENT_START_DAY = {2025: 14, 2026: 13, 2027: 6}
+
 def event_window(year):
-    """2nd Wednesday of May, 5am PT → Thursday 5pm PT (PDT = UTC-7)."""
-    may1_dow   = datetime(year, 5, 1).weekday()       # Mon=0..Sun=6
-    wed_offset = (2 - may1_dow + 7) % 7               # Wed=2 in py weekday
-    wed_date   = 1 + wed_offset + 7
-    start = datetime(year, 5, wed_date,     12, 0, 0, tzinfo=timezone.utc)  # 5am PT
-    end   = datetime(year, 5, wed_date + 2,  0, 0, 0, tzinfo=timezone.utc)
+    """36-hour window: 5am PT day 1 → 5pm PT day 2 (PDT = UTC-7)."""
+    day = EVENT_START_DAY.get(year)
+    if day is None:
+        # Unannounced year — fall back to the 2nd Wednesday as a rough guess.
+        may1_dow   = datetime(year, 5, 1).weekday()   # Mon=0..Sun=6
+        wed_offset = (2 - may1_dow + 7) % 7           # Wed=2 in py weekday
+        day        = 1 + wed_offset + 7
+    start = datetime(year, 5, day,     12, 0, 0, tzinfo=timezone.utc)  # 5am PT
+    end   = datetime(year, 5, day + 2,  0, 0, 0, tzinfo=timezone.utc)  # 5pm PT day 2
     return start, end
 
 def issue_exists(title_substring, state='all'):

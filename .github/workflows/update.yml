@@ -2,7 +2,12 @@ name: Update leaderboard data
 
 on:
   schedule:
-    - cron: '*/5 * * * *'   # every 5 minutes (GitHub's minimum)
+    # Event season: every 5 min through the whole first-half-of-May window,
+    # wide enough to cover whichever days Stanford picks (2027 = May 6–7).
+    - cron: '*/5 * 1-20 5 *'
+    # Rest of the year nothing changes, but keep a daily run so the schedule
+    # stays warm — GitHub disables cron workflows on dormant repos.
+    - cron: '17 12 * * *'
   workflow_dispatch:
 
 permissions:
