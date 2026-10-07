@@ -25,6 +25,14 @@ API_URL = ("https://dayofgiving.stanford.edu/ambassador_leaderboard/"
 MEDICINE_SECTION_ID = "67eb8ee6c39c7ee6af304336"
 MEDICINE_PAGE = "https://dayofgiving.stanford.edu/pages/stanford-medicine"
 DONORS_API_TMPL = "https://dayofgiving.stanford.edu/microsite/api/sections/{}/donors?page=1&limit=5"
+# Jen's ambassador id for the year (from discover_ids.py); falls back to the
+# name when empty. Keep in sync with index.html and fetch.py.
+TARGET_ID_STRING = ""
+
+def is_target(p):
+    if TARGET_ID_STRING and p.get("id_string"):
+        return p["id_string"] == TARGET_ID_STRING
+    return 'varela' in p['name'].lower()
 
 # ──────────────────────────────────────────────────────────────────────
 # Announced start dates (May day-of-month). Stanford does NOT keep a stable
@@ -85,7 +93,7 @@ def check_tie_published():
         print(f"[tie check fetch error] {e}", file=sys.stderr)
         return
 
-    jen  = next((p for p in ranked if 'varela'   in p['name'].lower()), None)
+    jen  = next((p for p in ranked if is_target(p)), None)
     drew = next((p for p in ranked if 'hutchins' in p['name'].lower()), None)
 
     # If Jen's name vanished from Stanford's leaderboard (renamed, merged, or
@@ -177,7 +185,7 @@ The tracker at <https://hlash99.github.io/stanford-giving-tracker/> will automat
 ```
 cd stanford-giving-tracker && python discover_ids.py
 ```
-Paste any new `STANFORD_API` / `MEDICINE_SECTION_ID` into `index.html` + `notify.py`.
+Paste the new `STANFORD_API` / `MEDICINE_SECTION_ID` / `TARGET_ID_STRING` into `index.html`, `fetch.py` (`API_URL`) and `notify.py`.
 
 Get ready to rally Team Jen! 💙
 
@@ -214,7 +222,7 @@ def check_leaderboard_url_health():
             parts = [p for p in r.json().get("show_participants", []) if not p.get("hide")]
             if not parts:
                 problem = "leaderboard URL returned no participants"
-            elif not any('varela' in p['name'].lower() for p in parts):
+            elif not any(is_target(p) for p in parts):
                 names = ", ".join(f"{p['name']} ({p['conversion']})" for p in parts[:6])
                 problem = f"no participant matching 'Varela' found. Current top: {names}"
     except Exception as e:
@@ -244,8 +252,8 @@ cd stanford-giving-tracker
 pip install playwright requests && python -m playwright install chromium
 python discover_ids.py
 ```
-That prints the new `STANFORD_API` and `MEDICINE_SECTION_ID` values to paste
-into **both** `index.html` and `notify.py`.
+That prints the new `STANFORD_API`, `MEDICINE_SECTION_ID` and `TARGET_ID_STRING`
+values to paste into `index.html`, `fetch.py` (`API_URL`) **and** `notify.py`.
 
 - Configured URL: {API_URL}
 - Challenges page: https://dayofgiving.stanford.edu/pages/challenges-and-leaderboards

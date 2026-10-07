@@ -8,9 +8,9 @@ headless browser, captures the IDs that actually fire, finds Jen (by name),
 and prints a ready-to-paste config block for index.html / notify.py.
 
 WHAT CHANGES YEAR TO YEAR (and what this finds):
-  • Leaderboard API URL  -> STANFORD_API  (entity_id + id)   [index.html, notify.py]
-  • Jen's ambassador id   -> for sanity-checking the name match
-  • Medicine donor feed   -> MEDICINE_SECTION_ID              [index.html, notify.py]
+  • Leaderboard API URL  -> STANFORD_API / API_URL (entity_id + id) [index.html, fetch.py, notify.py]
+  • Jen's ambassador id   -> TARGET_ID_STRING                         [index.html, fetch.py, notify.py]
+  • Medicine donor feed   -> MEDICINE_SECTION_ID                      [index.html, notify.py]
 
 USAGE:
   pip install playwright requests && python -m playwright install chromium
@@ -123,11 +123,14 @@ def main():
 
     # Ready-to-paste config
     print("\n" + "=" * 66)
-    print("PASTE INTO index.html AND notify.py:\n")
-    print(f'  STANFORD_API        = "{leaderboard_url}"')
+    print("PASTE INTO index.html, fetch.py AND notify.py:\n")
+    print(f'  STANFORD_API        = "{leaderboard_url}"   (API_URL in fetch.py / notify.py)')
+    if jen:
+        print(f'  TARGET_ID_STRING    = "{jen["id_string"]}"')
     if med:
-        print(f'  MEDICINE_SECTION_ID = "{med}"')
-    print("\nThen add a YEAR_ARCHIVES entry after the event ends.")
+        print(f'  MEDICINE_SECTION_ID = "{med}"   (index.html + notify.py)')
+    print("\nNo edit is needed after the event — results are derived from the data.")
+    print("Add a YEAR_ARCHIVES entry only to record something the API can't show.")
     print("=" * 66)
 
 

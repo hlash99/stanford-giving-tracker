@@ -194,6 +194,9 @@ footer a:hover{color:#888}
   font-size:.85rem;font-weight:600;letter-spacing:.3px;transition:all .2s}
 .results-link:hover{background:rgba(251,191,36,.22);border-color:rgba(251,191,36,.6);color:#fff}
 .results-signoff-row{text-align:center}
+.results-replay{display:inline-flex;align-items:center;gap:6px;margin:10px 4px 0;padding:8px 18px;border-radius:999px;
+  background:none;border:1px solid #3a3d4a;color:#aaa;font:600 .85rem/1 'Segoe UI',system-ui,sans-serif;letter-spacing:.3px;cursor:pointer;transition:all .2s}
+.results-replay:hover{border-color:#666;color:#fff}
 .results.win .results-headline{color:#fbbf24}
 .results.win{background:linear-gradient(135deg,#1a1d27 0%,#3a2f0a 50%,#1a1d27 100%)}
 
@@ -230,6 +233,16 @@ footer a:hover{color:#888}
   50%{box-shadow:0 0 0 1px rgba(255,255,255,.4) inset,0 6px 22px rgba(251,191,36,.85);transform:scale(1.04)}
 }
 body.is-leading{box-shadow:inset 0 0 0 3px rgba(251,191,36,.35)}
+
+/* data-problem notice (e.g. Jen missing from Stanford's live leaderboard) */
+.notice[hidden]{display:none!important}
+.notice{background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.35);border-radius:12px;padding:12px 16px;margin-bottom:18px;font-size:.88rem;color:#fde68a;line-height:1.45}
+
+/* Respect the OS "reduce motion" setting: no pulsing, throbbing or flashing.
+   Photo rain is left alone — it only ever runs when someone presses Replay. */
+@media (prefers-reduced-motion: reduce){
+  *:not(.photo-rain img),*::before,*::after{animation:none!important;transition:none!important}
+}
 
 /* ── Mobile (≤ 600px) ── */
 @media(max-width:600px){
@@ -270,7 +283,7 @@ body.is-leading{box-shadow:inset 0 0 0 3px rgba(251,191,36,.35)}
 <header>
   <div class="title-block">
     <h1>Jen Varela — Race to #1</h1>
-    <div class="sub">Stanford Day of Giving · May 13–14, 2026</div>
+    <div class="sub" id="h-sub">Stanford Day of Giving · May 13–14, 2026</div>
   </div>
   <div class="countdown" id="countdown" aria-label="Time remaining">
     <span class="urgency-cta" id="urgency-cta">Final minutes!</span>
@@ -291,6 +304,8 @@ body.is-leading{box-shadow:inset 0 0 0 3px rgba(251,191,36,.35)}
 <main>
 
   <div class="year-tabs" id="year-tabs" hidden></div>
+
+  <div class="notice" id="notice" role="status" hidden></div>
 
   <div class="year-compare" id="year-compare" hidden>
     <div class="yc-emoji" id="yc-emoji">📈</div>
@@ -316,6 +331,7 @@ body.is-leading{box-shadow:inset 0 0 0 3px rgba(251,191,36,.35)}
       <a class="results-link" href="https://dayofgiving.stanford.edu/" target="_blank" rel="noopener">
         Visit Stanford Day of Giving ↗
       </a>
+      <button class="results-replay" id="r-replay" type="button">Replay celebration 🎉</button>
     </div>
   </div>
 
@@ -412,7 +428,29 @@ body.is-leading{box-shadow:inset 0 0 0 3px rgba(251,191,36,.35)}
 </footer>
 
 <script>
-const TARGET = "Jen Varela";
+// ── Who we're tracking ───────────────────────────────────────────────
+// Match on Stanford's ambassador id_string when one is set (it survives a
+// display-name change — in Oct 2026 Jen's old 465-gift listing was renamed
+// "Joe Getschow"), otherwise fall back to the name. discover_ids.py prints
+// the current id_string; keep this in sync with fetch.py and notify.py.
+const TARGET_NAME      = "Jen Varela";
+const TARGET_MATCH     = /varela/i;
+const TARGET_ID_STRING = "";
+function isTarget(p) {
+  if (!p) return false;
+  if (TARGET_ID_STRING && p.id_string) return p.id_string === TARGET_ID_STRING;
+  return TARGET_MATCH.test(p.name || '');
+}
+
+// Names and notes come from Stanford (donor display names are typed by the
+// donors themselves), so escape anything that goes through innerHTML.
+function esc(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+const REDUCED_MOTION = window.matchMedia('(prefers-reduced-motion: reduce)');
+
 Chart.defaults.color = '#555';
 Chart.defaults.borderColor = '#1e2130';
 let gapChart, absChart;
@@ -444,7 +482,8 @@ function buildCharts(history) {
 
   const xAxis = {
     type: 'time',
-    time: { unit: 'minute', tooltipFormat: 'HH:mm', displayFormats: { minute: 'HH:mm' } },
+    // The event spans two days, so a bare HH:mm is ambiguous — include the weekday.
+    time: { unit: 'minute', tooltipFormat: 'EEE MMM d, HH:mm', displayFormats: { minute: 'EEE HH:mm' } },
     ticks: { font: { size: 10 }, maxTicksLimit: 7, color: '#444' },
     grid: { color: '#191c28' }
   };
@@ -543,15 +582,95 @@ function buildCharts(history) {
 // ── Year tabs / archive / comparison / all-time helpers ──────────────
 let _lastFetchedData = null;
 
-function renderYearTabs() {
-  const years  = getSelectableYears();
+// Filter history to a given event year's window
+function filterHistoryToYear(h, year) {
+  const w = eventWindow(year);
+  return (h || []).filter(p => {
+    const t = new Date(p.ts).getTime();
+    return t >= w.start && t <= w.end;
+  });
+}
+
+// Years whose event has finished and that have recorded history inside the window.
+function recordedEndedYears(h) {
+  const now = Date.now(), years = new Set();
+  for (const p of h || []) {
+    const t = new Date(p.ts).getTime();
+    const y = new Date(t).getUTCFullYear();
+    const w = eventWindow(y);
+    if (t >= w.start && t <= w.end && now >= w.end) years.add(y);
+  }
+  return years;
+}
+
+function latestRecordedYear(h) {
+  let y = null;
+  for (const p of h || []) {
+    const py = new Date(p.ts).getUTCFullYear();
+    if (y === null || py > y) y = py;
+  }
+  return y;
+}
+
+function fmtEventDates(year) {
+  const d = new Date(eventWindow(year).start).getUTCDate();   // 12:00 UTC = 5am PT, same calendar day
+  return `May ${d}–${d + 1}, ${year}`;
+}
+
+// Final result for an ended year. A hand-written YEAR_ARCHIVES entry wins — it
+// can carry things the API never shows, like 2026's adjudicated tie and prize
+// money. Otherwise the result is derived from the recorded history, so a new
+// year gets its results card the moment the event ends, with no code edits.
+function resultFor(year, data) {
+  if (YEAR_ARCHIVES[year]) return YEAR_ARCHIVES[year];
+  if (Date.now() < eventWindow(year).end) return null;
+  const h   = (data && data.history) || [];
+  const pts = filterHistoryToYear(h, year).filter(p => p.target_gifts != null);
+  if (!pts.length) return null;
+  const last = pts[pts.length - 1];
+  // The stored top 10 is whatever Stanford showed on the latest fetch, so it
+  // only belongs to the most recent recorded year.
+  const lb     = latestRecordedYear(h) === year ? (data.leaderboard || []) : [];
+  const jenRow = lb.find(isTarget);
+  return {
+    year,
+    derived:     true,
+    eventDates:  fmtEventDates(year),
+    finalRank:   last.target_rank,
+    tied:        false,
+    finalGifts:  last.target_gifts,
+    leaderName:  last.leader_name,
+    leaderGifts: last.leader_gifts,
+    teamRaised:  jenRow ? jenRow.raised : null,
+    leaderboard: lb,
+  };
+}
+
+// Selectable years, newest first: archives, years with recorded results, and
+// the live year while the event is running. Tabs only show with 2+ entries.
+function getSelectableYears(data) {
+  const years = new Set(Object.keys(YEAR_ARCHIVES).map(Number));
+  recordedEndedYears(data && data.history).forEach(y => years.add(y));
+  const ev = currentEvent();
+  if (ev.isLive) years.add(ev.year);
+  return [...years].sort((a, b) => b - a);
+}
+
+// Most recent finished event that has a result to show (drives the
+// end-of-event celebration).
+function latestEndedYear(data) {
+  const ended = getSelectableYears(data).filter(y => Date.now() >= eventWindow(y).end);
+  return ended.length ? ended[0] : null;
+}
+
+function renderYearTabs(years, viewYear) {
   const tabsEl = document.getElementById('year-tabs');
   if (years.length < 2) { tabsEl.hidden = true; return; }
   const ev = currentEvent();
   tabsEl.hidden = false;
   tabsEl.innerHTML = years.map(y => {
     const isLive = ev.isLive && y === ev.year;
-    return `<button class="year-tab ${y === activeYear ? 'active' : ''}${isLive ? ' live' : ''}" data-year="${y}">${y}</button>`;
+    return `<button class="year-tab ${y === viewYear ? 'active' : ''}${isLive ? ' live' : ''}" data-year="${y}">${y}</button>`;
   }).join('');
   tabsEl.querySelectorAll('.year-tab').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -561,34 +680,39 @@ function renderYearTabs() {
   });
 }
 
-function renderAllTimeRaised(liveRaised) {
-  const el = document.getElementById('all-time');
-  const years = getSelectableYears();
-  if (years.length < 2) { el.hidden = true; return; }
-  let total = 0;
-  for (const y of Object.keys(YEAR_ARCHIVES)) total += YEAR_ARCHIVES[y].teamRaised || 0;
-  if (liveRaised != null) total += liveRaised;
-  el.hidden = false;
-  document.getElementById('all-time-amount').textContent =
-    total >= 1e6 ? '$' + (total/1e6).toFixed(2) + 'M'
-                  : '$' + Math.round(total).toLocaleString();
+function fmtRaised(n) {
+  return n >= 1e6 ? '$' + (n/1e6).toFixed(2) + 'M' : '$' + Math.round(n).toLocaleString();
 }
 
-function renderComparison(latest, lb) {
+// liveRaised is Team Jen's running total from Stanford's live leaderboard, only
+// while an event is running — never the total of the year being viewed, or an
+// archived year would be counted twice.
+function renderAllTimeRaised(years, data, liveRaised) {
+  const el = document.getElementById('all-time');
+  if (years.length < 2) { el.hidden = true; return; }
+  let total = 0;
+  for (const y of years) {
+    const r = resultFor(y, data);
+    if (r) total += r.teamRaised || 0;
+  }
+  if (liveRaised != null) total += liveRaised;
+  el.hidden = false;
+  document.getElementById('all-time-amount').textContent = fmtRaised(total);
+}
+
+function renderComparison(ev, viewYear, years, latest, lb, data) {
   const el = document.getElementById('year-compare');
-  const ev = currentEvent();
   // Only relevant when viewing the live current year
-  if (!ev.isLive || activeYear !== ev.year) { el.hidden = true; return; }
-  // Find most recent prior archive
-  const priorYear = Object.keys(YEAR_ARCHIVES).map(Number)
-                      .filter(y => y < activeYear).sort((a,b) => b - a)[0];
+  if (!ev.isLive || viewYear !== ev.year || !latest) { el.hidden = true; return; }
+  // Most recent prior year with a result
+  const priorYear = years.find(y => y < viewYear && resultFor(y, data));
   if (!priorYear) { el.hidden = true; return; }
-  const prior = YEAR_ARCHIVES[priorYear];
+  const prior = resultFor(priorYear, data);
   const curGifts  = latest.target_gifts;
-  const jenRow    = (lb || []).find(p => /varela/i.test(p.name));
+  const jenRow    = (lb || []).find(isTarget);
   const curRaised = jenRow ? jenRow.raised : 0;
-  const dGifts  = curGifts  - prior.finalGifts;
-  const dRaised = curRaised - prior.teamRaised;
+  const dGifts  = curGifts - prior.finalGifts;
+  const dRaised = prior.teamRaised != null ? curRaised - prior.teamRaised : 0;
   // Only show when current is doing better on gifts AND/OR raised
   if (dGifts <= 0 && dRaised <= 0) { el.hidden = true; return; }
   el.hidden = false;
@@ -603,24 +727,23 @@ function renderComparison(latest, lb) {
     (dRaised > 0 ? `<div class="yc-delta"><b>+$${Math.round(dRaised).toLocaleString()}</b>raised</div>` : '');
 }
 
-// Filter history to a given event year's window (used when viewing an archived year)
-function filterHistoryToYear(h, year) {
-  const w = eventWindow(year);
-  return h.filter(p => {
-    const t = new Date(p.ts).getTime();
-    return t >= w.start && t <= w.end;
-  });
+function renderNotice(targetMissing) {
+  const el = document.getElementById('notice');
+  el.hidden = !targetMissing;
+  if (targetMissing) el.textContent =
+    `${TARGET_NAME}'s listing isn't showing in Stanford's live leaderboard right now, so her ` +
+    `numbers below may be out of date. Stanford's top 10 is still live.`;
 }
 
 // Detect whether Stanford has officially published the tie in their leaderboard.
 // Signal: Jen and the named tied-with party both appear with EQUAL gift counts.
 // (Stanford could update by bumping Jen up, Drew down, or splitting the diff —
 // any of those would manifest as matching counts.)
-function detectStanfordPublishedTie(liveLb) {
+function detectStanfordPublishedTie(liveLb, arch) {
   if (!liveLb || liveLb.length < 2) return null;
-  if (!(OFFICIAL_RESULT && OFFICIAL_RESULT.tied && OFFICIAL_RESULT.tiedWith)) return null;
-  const jen = liveLb.find(p => /varela/i.test(p.name));
-  const tiedLast = OFFICIAL_RESULT.tiedWith.split(' ').slice(-1)[0];   // last name
+  if (!(arch && arch.tied && arch.tiedWith)) return null;
+  const jen = liveLb.find(isTarget);
+  const tiedLast = arch.tiedWith.split(' ').slice(-1)[0];   // last name
   const other = liveLb.find(p => new RegExp(tiedLast, 'i').test(p.name));
   if (!jen || !other) return null;
   if (jen.gifts === other.gifts) {
@@ -629,60 +752,182 @@ function detectStanfordPublishedTie(liveLb) {
   return null;
 }
 
+// Leaderboard table. A year with an adjudicated tie shows both co-champions as
+// gold #1 and the rest shift down (1, 1, 3, 4...). Only that year — never the
+// live board of a later year.
+function renderLeaderboard(lb, arch) {
+  let lbView = lb.slice();
+  if (arch && arch.tied && arch.tiedWith) {
+    const tiedWith = arch.tiedWith.toLowerCase();
+    const isTied = p => isTarget(p) || p.name.toLowerCase().includes(tiedWith);
+    lbView = lb.map(p => ({ ...p, rank: isTied(p) ? 1 : (p.rank === 2 ? 3 : p.rank) }));
+    // Order: tied #1s first (higher gift count on top), then everyone else by rank
+    lbView.sort((a, b) => a.rank - b.rank || b.gifts - a.gifts);
+  }
+  document.getElementById('lb-title').textContent =
+    arch ? 'Final Top 10 Leaderboard' : 'Live Top 10 Leaderboard';
+  document.getElementById('lb-body').innerHTML = lbView.map(p => {
+    const isJen = isTarget(p);
+    const rb = p.rank <= 3
+      ? `<span class="rb r${p.rank}">${p.rank}</span>`
+      : `<span class="rb rn">${p.rank}</span>`;
+    return `<tr class="${isJen ? 'hl' : ''}">
+      <td>${rb}</td>
+      <td>${esc(p.name)}${isJen ? ' ⭐' : ''}</td>
+      <td class="col-campaign" style="color:#444;font-size:.8rem">${esc(p.campaign)}</td>
+      <td style="text-align:right;font-weight:700">${p.gifts}</td>
+      <td class="col-raised" style="text-align:right;color:#444">${fmtMoney(p.raised)}</td>
+    </tr>`;
+  }).join('');
+}
+
+// Persistent final-results card for a finished year.
+function renderResults(arch, latest, viewYear) {
+  const resEl = document.getElementById('results');
+  resEl.hidden = !arch;
+  if (!arch) return;
+
+  const tied  = !!arch.tied;
+  const r     = arch.finalRank;
+  const isWin = r === 1;
+  resEl.classList.toggle('win', isWin);
+
+  // The synthesized final point already incorporates Stanford's published tie
+  // if one was detected, so take the numbers from it.
+  const finalGifts = latest.target_gifts;
+  const leaderName = tied ? arch.tiedWith : (latest.leader_name || '#1');
+  const gap        = tied ? Math.max(0, latest.leader_gifts - latest.target_gifts) : latest.delta;
+  // When Jen wins outright the "leader" is Jen herself — the runner-up is #2.
+  const runnerUp   = latest.second_name || '#2';
+  const margin     = latest.second_gifts != null ? latest.target_gifts - latest.second_gifts : null;
+
+  document.getElementById('r-medal').textContent =
+    (tied || isWin) ? '🏆' : (r === 2 ? '🥈' : r === 3 ? '🥉' : '💙');
+
+  document.getElementById('r-headline').textContent =
+    tied   ? 'TIE FOR #1!'
+    : isWin ? 'JEN WON STANFORD DAY OF GIVING!'
+            : 'A photo finish for Team Jen!';
+
+  const k = n => '$' + (n/1000).toFixed(0) + 'K';
+  const prizeTxt = arch.prizeForCause
+    ? `<b>${k(arch.prizeForCause)}</b> unlocked for the ${esc(arch.cause)}` +
+      (arch.closingTimeBonus
+        ? `, plus a bonus <b>${k(arch.closingTimeBonus)}</b> from the "Closing Time" challenge` +
+          (arch.closingTimeNote ? ` (${esc(arch.closingTimeNote)})` : '')
+        : '') + '.'
+    : '';
+  document.getElementById('r-sub').innerHTML = tied
+    ? `<b>Jen finished TIED for #1</b> with <b>${finalGifts} gifts</b>.` + (prizeTxt ? `<br>${prizeTxt}` : '')
+    : isWin
+      ? `She finished #1 with ${finalGifts} gifts — ` +
+        (margin != null ? `${margin} ahead of ${esc(runnerUp)}.` : 'ahead of the whole field.') +
+        (prizeTxt ? `<br>${prizeTxt}` : '')
+      : `Jen finished #${r} with ${finalGifts} gifts — ` +
+        (gap <= 5 ? `just ${gap} behind ${esc(leaderName)} in a nail-biter.` : `${gap} behind ${esc(leaderName)}.`);
+
+  document.getElementById('r-rank').textContent  = tied ? 'T-#1' : ('#' + r);
+  document.getElementById('r-gifts').textContent = finalGifts.toLocaleString();
+
+  // 3rd stat repurposed when there's prize money to celebrate
+  const totalWon = (arch.prizeForCause || 0) + (arch.closingTimeBonus || 0);
+  if (totalWon) {
+    document.getElementById('r-gap').textContent   = '$' + (totalWon/1000).toFixed(0) + 'K';
+    document.getElementById('r-gap-l').textContent = 'Won for Research';
+  } else {
+    document.getElementById('r-gap').textContent   = isWin ? (margin != null ? '+' + margin : '—') : gap;
+    document.getElementById('r-gap-l').textContent = isWin ? 'Ahead of #2' : 'Gap to #1';
+  }
+
+  document.getElementById('r-site-raised').textContent =
+    arch.teamRaised != null ? fmtRaised(arch.teamRaised) : '—';
+
+  document.getElementById('r-thanks').innerHTML = tied
+    ? `Thank you to <b>every donor</b> who showed up — what a finish!`
+    : isWin
+      ? `Thank you to <b>every donor</b> who made this win possible. Stanford Day of Giving ${viewYear} — what a finish! 🏆`
+      : `Thank you to <b>every donor</b> who showed up for Team Jen. Down to the wire, every gift mattered — what a finish! 💙`;
+
+  // Replay is an explicit request, so it plays in full even with reduced motion on.
+  document.getElementById('r-replay').onclick = () => playEndCelebration(arch, true);
+}
+
 function updateUI(data) {
   _lastFetchedData = data;
-  // If the user is viewing an archived past year, swap in that year's frozen data
-  const ev = currentEvent();
-  const isLiveYearView = ev.isLive && activeYear === ev.year;
-  const isArchiveView  = !isLiveYearView && YEAR_ARCHIVES[activeYear];
-  if (isArchiveView) {
-    const a = YEAR_ARCHIVES[activeYear];
-    const filtered = filterHistoryToYear(data.history || [], activeYear);
+  const ev       = currentEvent();
+  const years    = getSelectableYears(data);
+  const viewYear = years.includes(activeYear) ? activeYear : (years[0] ?? ev.year);
+  const isLiveYearView = ev.isLive && viewYear === ev.year;
+  // Every year except the live one is shown as a finished result.
+  const arch = isLiveYearView ? null : resultFor(viewYear, data);
+
+  let view;
+  if (arch) {
+    const filtered = filterHistoryToYear(data.history || [], viewYear);
     // If Stanford has caught up and published the tie (matching counts in their
-    // live leaderboard), prefer their adjudicated numbers; otherwise use the
-    // hardcoded archive values.
-    const stanfordTie = detectStanfordPublishedTie(data.leaderboard);
-    const useLb       = stanfordTie ? data.leaderboard.slice(0, 10) : a.leaderboard;
-    const finalGifts  = stanfordTie ? stanfordTie.jenGifts  : a.finalGifts;
-    const leaderGifts = stanfordTie ? stanfordTie.otherGifts : a.leaderGifts;
-    const second = useLb.find(p => p.rank !== 1 && !/varela/i.test(p.name)) ||
-                   a.leaderboard.find(p => p.rank !== 1 && !/varela/i.test(p.name));
+    // leaderboard), prefer their adjudicated numbers; otherwise use the archive's.
+    // The stored leaderboard only belongs to the latest recorded year.
+    const stanfordTie = latestRecordedYear(data.history) === viewYear
+                          ? detectStanfordPublishedTie(data.leaderboard, arch) : null;
+    const useLb       = stanfordTie ? data.leaderboard.slice(0, 10) : (arch.leaderboard || []);
+    const finalGifts  = stanfordTie ? stanfordTie.jenGifts  : arch.finalGifts;
+    const leaderGifts = stanfordTie ? stanfordTie.otherGifts : arch.leaderGifts;
+    let second;
+    if (arch.derived) {
+      const lastPt = filtered[filtered.length - 1] || {};
+      second = lastPt.second_gifts != null ? { gifts: lastPt.second_gifts, name: lastPt.second_name } : null;
+    } else {
+      second = useLb.find(p => p.rank !== 1 && !isTarget(p)) ||
+               (arch.leaderboard || []).find(p => p.rank !== 1 && !isTarget(p));
+    }
     const finalPoint = {
-      ts:           new Date(eventWindow(activeYear).end).toISOString(),
+      ts:           new Date(eventWindow(viewYear).end).toISOString(),
       target_gifts: finalGifts,
       leader_gifts: leaderGifts,
-      leader_name:  a.leaderName,
+      leader_name:  arch.leaderName,
       second_gifts: second ? second.gifts : null,
       second_name:  second ? second.name  : null,
       // An adjudicated tie is officially a gap of 0 — don't show "N behind"
       // next to the "TIE FOR #1" banner just because the raw API counts differ.
-      delta:        a.tied ? 0 : leaderGifts - finalGifts,
-      target_rank:  a.finalRank,
+      delta:        arch.tied ? 0 : leaderGifts - finalGifts,
+      target_rank:  arch.finalRank,
     };
-    data = {
-      history:     [...filtered, finalPoint],
-      leaderboard: useLb,
-    };
+    view = { history: [...filtered, finalPoint], leaderboard: useLb };
+  } else {
+    // Live year: drop earlier years' points from the shared history file.
+    view = { history: filterHistoryToYear(data.history || [], viewYear), leaderboard: data.leaderboard || [] };
   }
 
-  const h  = data.history || [];
-  const lb = data.leaderboard || [];
-
-  // Tabs, all-time, comparison (independent of whether there's data)
-  renderYearTabs();
-  const jenRow = (lb || []).find(p => /varela/i.test(p.name));
-  renderAllTimeRaised(jenRow ? jenRow.raised : null);
-  if (h.length) renderComparison(h[h.length - 1], lb);
-
-  if (!h.length) return;
-
+  const h  = view.history;
+  const lb = view.leaderboard;
   const latest = h[h.length - 1];
 
-  // Gap card — to #1
-  document.getElementById('c-gap').textContent = latest.delta;
+  document.getElementById('h-sub').textContent = `Stanford Day of Giving · ${fmtEventDates(viewYear)}`;
+
+  // Tabs, all-time, comparison, leaderboard, results (independent of whether there's history)
+  renderYearTabs(years, viewYear);
+  const liveJen = ev.isLive ? (data.leaderboard || []).find(isTarget) : null;
+  renderAllTimeRaised(years, data, liveJen ? liveJen.raised : null);
+  renderComparison(ev, viewYear, years, data.targetMissing ? null : latest, lb, data);
+  renderNotice(isLiveYearView && data.targetMissing);
+  renderLeaderboard(lb, arch);
+  renderResults(arch, latest, viewYear);
+
+  if (!h.length) {
+    document.getElementById('milestone').hidden = true;
+    checkCelebrations(null, data);
+    return;
+  }
+
+  // Gap card — to #1. While Jen is #1 the "leader" is Jen herself (delta 0),
+  // so show her lead over #2 instead. An adjudicated tie still reads as a tie.
+  const leadOver2 = (!(arch && arch.tied) && latest.target_rank === 1 && latest.second_gifts != null)
+                      ? latest.target_gifts - latest.second_gifts : null;
+  document.getElementById('c-gap').textContent = leadOver2 > 0 ? '+' + leadOver2 : latest.delta;
   document.getElementById('c-gap-hint').textContent =
+    leadOver2 > 0       ? `🚀 In the LEAD by ${leadOver2}!` :
     latest.delta === 0 ? '🎉 Tied for #1!' :
-    latest.delta < 0  ? '🚀 In the LEAD!' :
+    latest.delta < 0   ? '🚀 In the LEAD!' :
     `gifts behind ${latest.leader_name}`;
 
   // Gap card — to #2 (only meaningful if Jen is rank 3+)
@@ -704,8 +949,8 @@ function updateUI(data) {
 
   // Rank card — once the event is over these cards describe the final state,
   // not a "current position" (which read as live weeks after the finish).
-  const finalView = isArchiveView || !ev.isLive;
-  const archTied  = YEAR_ARCHIVES[activeYear] && YEAR_ARCHIVES[activeYear].tied;
+  const finalView = !!arch;
+  const archTied  = arch && arch.tied;
   document.getElementById('c-rank').textContent =
     (finalView && archTied && latest.target_rank === 1) ? 'T-#1' : '#' + (latest.target_rank || '?');
   document.getElementById('c-rank-hint').textContent = finalView ? 'final rank' : 'current position';
@@ -714,12 +959,12 @@ function updateUI(data) {
 
   // Rate & ETA — use all points within last 60 min
   const cutoff = new Date(latest.ts).getTime() - 60 * 60 * 1000;
-  const window = h.filter(p => new Date(p.ts).getTime() >= cutoff);
+  const recent = h.filter(p => new Date(p.ts).getTime() >= cutoff);
   const eta2El = document.getElementById('c-eta-2');
-  if (window.length >= 2) {
-    const dt       = (new Date(window[window.length-1].ts) - new Date(window[0].ts)) / 3600000;
-    const jenRate  = dt > 0 ? (window[window.length-1].target_gifts - window[0].target_gifts) / dt : 0;
-    const ldrRate  = dt > 0 ? (window[window.length-1].leader_gifts - window[0].leader_gifts) / dt : 0;
+  if (recent.length >= 2) {
+    const dt       = (new Date(recent[recent.length-1].ts) - new Date(recent[0].ts)) / 3600000;
+    const jenRate  = dt > 0 ? (recent[recent.length-1].target_gifts - recent[0].target_gifts) / dt : 0;
+    const ldrRate  = dt > 0 ? (recent[recent.length-1].leader_gifts - recent[0].leader_gifts) / dt : 0;
     const netRate  = jenRate - ldrRate;
 
     document.getElementById('c-rate').textContent =
@@ -752,7 +997,7 @@ function updateUI(data) {
     } else if (latest.second_gifts == null) {
       eta2El.textContent = '—';
     } else {
-      const winWithSecond = window.filter(p => p.second_gifts != null);
+      const winWithSecond = recent.filter(p => p.second_gifts != null);
       const gapTo2 = Math.max(0, latest.second_gifts - latest.target_gifts);
       if (gapTo2 <= 0) {
         eta2El.textContent = '🥈';
@@ -780,100 +1025,8 @@ function updateUI(data) {
     eta2El.textContent = '—';
     document.getElementById('c-eta-hint').textContent = 'event finished';
   }
-  document.getElementById('lb-title').textContent =
-    finalView ? 'Final Top 10 Leaderboard' : 'Live Top 10 Leaderboard';
 
-  // Leaderboard table — apply official tie override if Stanford has declared one.
-  // Both Jen and Drew get rank 1 (gold), and the rest shift down (1, 1, 3, 4...).
-  let lbView = lb.slice();
-  if (OFFICIAL_RESULT && OFFICIAL_RESULT.tied) {
-    const tieNames = ['varela', OFFICIAL_RESULT.tiedWith.toLowerCase()];
-    const isTied = p => tieNames.some(n => p.name.toLowerCase().includes(n.split(' ')[0]));
-    lbView = lb.map(p => ({ ...p, rank: isTied(p) ? 1 : (p.rank === 2 ? 3 : p.rank) }));
-    // Order: tied #1s first (Drew on top by gift count), then everyone else by rank
-    lbView.sort((a, b) => a.rank - b.rank || b.gifts - a.gifts);
-  }
-  document.getElementById('lb-body').innerHTML = lbView.map(p => {
-    const isJen = /varela/i.test(p.name);
-    const rb = p.rank <= 3
-      ? `<span class="rb r${p.rank}">${p.rank}</span>`
-      : `<span class="rb rn">${p.rank}</span>`;
-    return `<tr class="${isJen ? 'hl' : ''}">
-      <td>${rb}</td>
-      <td>${p.name}${isJen ? ' ⭐' : ''}</td>
-      <td class="col-campaign" style="color:#444;font-size:.8rem">${p.campaign}</td>
-      <td style="text-align:right;font-weight:700">${p.gifts}</td>
-      <td class="col-raised" style="text-align:right;color:#444">${fmtMoney(p.raised)}</td>
-    </tr>`;
-  }).join('');
-
-  // ── Persistent final-results card (post-event) ──
-  const resEl = document.getElementById('results');
-  const eventOverNow = !currentEvent().isLive;
-  if (eventOverNow) {
-    resEl.hidden = false;
-    // If Stanford issued an official-result override, honor it; otherwise use live data.
-    const tied  = OFFICIAL_RESULT && OFFICIAL_RESULT.tied;
-    const r     = OFFICIAL_RESULT ? OFFICIAL_RESULT.rank : latest.target_rank;
-    const isWin = r === 1;
-    resEl.classList.toggle('win', isWin);
-
-    // Prefer the synthesized final point's numbers (which already incorporate
-    // Stanford's published tie if detected) over the hardcoded OFFICIAL_RESULT.
-    const finalGifts = (isArchiveView || OFFICIAL_RESULT) ? latest.target_gifts : latest.target_gifts;
-    const leaderName = OFFICIAL_RESULT ? OFFICIAL_RESULT.tiedWith : (latest.leader_name || '#1');
-    const gap        = OFFICIAL_RESULT ? Math.max(0, latest.leader_gifts - latest.target_gifts) : latest.delta;
-
-    document.getElementById('r-medal').textContent =
-      tied   ? '🏆'
-      : isWin ? '🏆'
-      : (r === 2 ? '🥈' : r === 3 ? '🥉' : '💙');
-
-    document.getElementById('r-headline').textContent =
-      tied   ? 'TIE FOR #1!'
-      : isWin ? 'JEN WON STANFORD DAY OF GIVING!'
-              : 'A photo finish for Team Jen!';
-
-    document.getElementById('r-sub').innerHTML = tied
-      ? `<b>Jen finished TIED for #1</b> with <b>${finalGifts} gifts</b>.<br>` +
-        `<b>$${(OFFICIAL_RESULT.prizeForCause/1000).toFixed(0)}K</b> unlocked for the ${OFFICIAL_RESULT.cause}, plus a bonus <b>$${(OFFICIAL_RESULT.closingTimeBonus/1000).toFixed(0)}K</b> from the "Closing Time" challenge (4:59:59.442 PM PT — 0.558 sec before the deadline!).`
-      : isWin
-        ? `She finished #1 with ${finalGifts} gifts — ahead of ${leaderName}.`
-        : `Jen finished #${r} with ${finalGifts} gifts — ` +
-          (gap <= 5 ? `just ${gap} behind ${leaderName} in a nail-biter.` : `${gap} behind ${leaderName}.`);
-
-    document.getElementById('r-rank').textContent  = tied ? 'T-#1' : ('#' + r);
-    document.getElementById('r-gifts').textContent = finalGifts.toLocaleString();
-
-    // 3rd stat repurposed when there's a prize win to celebrate
-    if (OFFICIAL_RESULT) {
-      const totalWon = (OFFICIAL_RESULT.prizeForCause || 0) + (OFFICIAL_RESULT.closingTimeBonus || 0);
-      document.getElementById('r-gap').textContent   = '$' + (totalWon/1000).toFixed(0) + 'K';
-      document.getElementById('r-gap-l').textContent = 'Won for Research';
-    } else {
-      document.getElementById('r-gap').textContent   = isWin ? '+' + Math.abs(gap) : gap;
-      document.getElementById('r-gap-l').textContent = isWin ? 'Ahead of #2' : 'Gap to #1';
-    }
-
-    // Team Jen's total raised
-    const jenRow = (lb || []).find(p => /varela/i.test(p.name));
-    const raised = OFFICIAL_RESULT ? OFFICIAL_RESULT.finalRaised : (jenRow ? jenRow.raised : null);
-    document.getElementById('r-site-raised').textContent =
-      raised != null
-        ? (raised >= 1e6 ? '$' + (raised/1e6).toFixed(2) + 'M'
-                          : '$' + Math.round(raised).toLocaleString())
-        : '—';
-
-    document.getElementById('r-thanks').innerHTML = tied
-      ? `Thank you to <b>every donor</b> who showed up — what a finish!`
-      : isWin
-        ? `Thank you to <b>every donor</b> who made this win possible. Stanford Day of Giving 2026 — what a finish! 🏆`
-        : `Thank you to <b>every donor</b> who showed up for Team Jen. Down to the wire, every gift mattered — what a finish! 💙`;
-  } else {
-    resEl.hidden = true;
-  }
-
-  // ── Site-wide milestone strip ──
+  // ── Site-wide milestone strip (live year only) ──
   // Walk back through history to find the most recent point with site totals
   // (a transient scrape error can occasionally leave a point with null site_*)
   const msEl = document.getElementById('milestone');
@@ -881,7 +1034,7 @@ function updateUI(data) {
   for (let i = h.length - 1; i >= 0; i--) {
     if (h[i].site_donors != null) { siteSrc = h[i]; break; }
   }
-  if (siteSrc && !eventOverNow) {
+  if (siteSrc && !arch) {
     msEl.hidden = false;
     const donors = siteSrc.site_donors;
     const next = Math.ceil((donors + 1) / 1000) * 1000;
@@ -894,10 +1047,7 @@ function updateUI(data) {
       `${(next - donors).toLocaleString()} to go (${pct.toFixed(1)}%)`;
     document.getElementById('ms-gifts').textContent  = (siteSrc.site_gifts || 0).toLocaleString();
     document.getElementById('ms-donors').textContent = donors.toLocaleString();
-    const raised = siteSrc.site_raised || 0;
-    document.getElementById('ms-raised').textContent =
-      raised >= 1e6 ? '$' + (raised/1e6).toFixed(2) + 'M'
-                     : '$' + Math.round(raised).toLocaleString();
+    document.getElementById('ms-raised').textContent = fmtRaised(siteSrc.site_raised || 0);
   } else {
     msEl.hidden = true;
   }
@@ -908,21 +1058,23 @@ function updateUI(data) {
   // Charts
   buildCharts(h);
 
-  // Celebrations
-  checkCelebrations(latest);
+  // Celebrations — live rank changes only count when looking at the live year
+  // and Jen's numbers are actually current.
+  checkCelebrations(isLiveYearView && !data.targetMissing ? latest : null, data);
 }
 
 // ── Celebrations ─────────────────────────────────────────────────────
+// Auto-play the end-of-event celebration only for a week after the finish;
+// after that, first-time visitors get the results card and a Replay button
+// instead of 18 seconds of photo rain on top of it.
+const CELEBRATE_AFTER_END_MS = 7 * 86400000;
 let lastSeenRank = null;
-// v4 — invalidate prior "I already celebrated" flags so the corrected tie-for-#1
-// official result fires the WIN celebration on next page load.
-let lastEndedRank = parseInt(sessionStorage.getItem('jen-end-rank-v4') || '0', 10) || null;
 let leadingInterval = null;
 
 function startLeadingMode() {
   document.getElementById('leading-badge').classList.add('show');
   document.body.classList.add('is-leading');
-  if (leadingInterval) return;
+  if (leadingInterval || REDUCED_MOTION.matches) return;
   // Gentle, recurring confetti every ~20s as long as Jen holds #1
   leadingInterval = setInterval(() => {
     fireBurst({ particleCount: 35, spread: 70, origin: { y: 0.55 },
@@ -984,16 +1136,20 @@ function showBanner(emoji, title, sub, mode, durationMs) {
   if (durationMs > 0) setTimeout(() => el.classList.remove('show'), durationMs);
 }
 
-function celebrateLeadGrab() {
+// `motion` = photo rain + confetti. Off by default when the OS asks for
+// reduced motion; the banner still shows either way.
+function celebrateLeadGrab(motion = !REDUCED_MOTION.matches) {
   showBanner('🎉', 'JEN TOOK #1!', 'She just pulled into the lead!', '', 10000);
+  if (!motion) return;
   rainTeamJen(12000, 200);
   fireBurst({ particleCount: 150, spread: 100 });
   setTimeout(() => fireBurst({ particleCount: 80, angle: 60,  spread: 60, origin: { x: 0, y: 0.7 } }), 250);
   setTimeout(() => fireBurst({ particleCount: 80, angle: 120, spread: 60, origin: { x: 1, y: 0.7 } }), 500);
 }
 
-function celebrateSecondPlace() {
+function celebrateSecondPlace(motion = !REDUCED_MOTION.matches) {
   showBanner('🥈', 'JEN TOOK #2!', 'Moved into second — #1 is in sight!', '', 9000);
+  if (!motion) return;
   rainTeamJen(9000, 260);
   const colors = ['#9ca3af','#e5e7eb','#60a5fa','#34d399','#fbbf24'];
   fireBurst({ particleCount: 120, spread: 90, colors });
@@ -1001,12 +1157,14 @@ function celebrateSecondPlace() {
   setTimeout(() => fireBurst({ particleCount: 70, angle: 120, spread: 55, origin: { x: 1, y: 0.7 }, colors }), 500);
 }
 
-function celebrateWin() {
-  const tied = OFFICIAL_RESULT && OFFICIAL_RESULT.tied;
+function celebrateWin(res, motion = !REDUCED_MOTION.matches) {
+  const tied  = res && res.tied;
   const title = tied ? 'CO-CHAMPIONS!' : 'JEN WINS #1!';
-  const sub   = tied ? `Tied with ${OFFICIAL_RESULT.tiedWith} — $25K each for their cause!`
+  const sub   = tied ? `Tied with ${res.tiedWith}` +
+                       (res.prizeForCause ? ` — $${(res.prizeForCause/1000).toFixed(0)}K each for their cause!` : '!')
                      : 'Stanford Day of Giving champion!';
   showBanner('🏆', title, sub, 'winner', 0);
+  if (!motion) return;
   rainTeamJen(18000, 180);  // longer, denser photo rain for a win
   const end = Date.now() + 12000;
   (function frame() {
@@ -1019,11 +1177,12 @@ function celebrateWin() {
   setTimeout(() => fireBurst({ particleCount: 200, spread: 130, origin: { y: 0.4 } }), 600);
 }
 
-function celebrateParticipation(finalRank, finalGifts) {
+function celebrateParticipation(finalRank, finalGifts, motion = !REDUCED_MOTION.matches) {
   showBanner('💙',
     'THANK YOU, TEAM JEN!',
     `Finished #${finalRank} with ${finalGifts} gifts — every one made a difference.`,
     'thanks', 0);
+  if (!motion) return;
   rainTeamJen(14000, 260);  // gentler photo rain for participation
   const colors = ['#3b82f6','#8b5cf6','#ec4899','#f59e0b','#60a5fa'];
   fireBurst({ particleCount: 120, spread: 110, colors });
@@ -1031,45 +1190,55 @@ function celebrateParticipation(finalRank, finalGifts) {
   setTimeout(() => fireBurst({ particleCount: 100, angle: 120, spread: 70, origin: { x: 1, y: 0.7 }, colors }), 800);
 }
 
-function checkCelebrations(latest) {
-  const rank      = latest.target_rank;
+function playEndCelebration(res, motion = !REDUCED_MOTION.matches) {
+  if (res.finalRank === 1) celebrateWin(res, motion);
+  else                     celebrateParticipation(res.finalRank, res.finalGifts, motion);
+}
+
+// `latest` is the live year's newest point, or null when there's nothing live
+// to react to (viewing an archive, or Jen missing from Stanford's list).
+function checkCelebrations(latest, data) {
   const eventOver = !currentEvent().isLive;
 
-  // Lead grab: rank flipped from non-#1 → #1 (live, during the event)
-  if (!eventOver && rank === 1 && lastSeenRank !== null && lastSeenRank !== 1) {
-    const key = 'jen-lead-' + latest.ts.slice(0, 16);
-    if (!sessionStorage.getItem(key)) {
-      sessionStorage.setItem(key, '1');
-      celebrateLeadGrab();
+  if (latest && !eventOver) {
+    const rank = latest.target_rank;
+    // Lead grab: rank flipped from non-#1 → #1
+    if (rank === 1 && lastSeenRank !== null && lastSeenRank !== 1) {
+      const key = 'jen-lead-' + latest.ts.slice(0, 16);
+      if (!sessionStorage.getItem(key)) {
+        sessionStorage.setItem(key, '1');
+        celebrateLeadGrab();
+      }
     }
-  }
-  // Second place: rank flipped from 3+ → 2
-  if (!eventOver && rank === 2 && lastSeenRank !== null && lastSeenRank > 2) {
-    const key = 'jen-second-' + latest.ts.slice(0, 16);
-    if (!sessionStorage.getItem(key)) {
-      sessionStorage.setItem(key, '1');
-      celebrateSecondPlace();
+    // Second place: rank flipped from 3+ → 2
+    if (rank === 2 && lastSeenRank !== null && lastSeenRank > 2) {
+      const key = 'jen-second-' + latest.ts.slice(0, 16);
+      if (!sessionStorage.getItem(key)) {
+        sessionStorage.setItem(key, '1');
+        celebrateSecondPlace();
+      }
     }
+    lastSeenRank = rank;
+    // Persistent leading mode — keep something celebratory going while she's #1
+    if (rank === 1) startLeadingMode();
+    else            stopLeadingMode();
   }
-  lastSeenRank = rank;
 
-  // Persistent leading mode — keep something celebratory going while she's #1
-  if (!eventOver && rank === 1) startLeadingMode();
-  else                          stopLeadingMode();
-
-  // Event end: fire the celebration matching the *current* final rank.
-  // Stanford's official result (the tie) overrides whatever rank the live API
-  // shows, so the win celebration fires for the co-championship.
+  // Event end: fire the celebration matching the most recent finished year's
+  // result (its archive entry, e.g. 2026's tie, overrides the raw API rank).
+  // Re-fires if that result flips between win and not-win (e.g. a rank change
+  // right at the buzzer), but only during the first week after the finish.
   if (eventOver) {
-    const officialRank = OFFICIAL_RESULT ? OFFICIAL_RESULT.rank : rank;
-    const finalKind = officialRank === 1 ? 1 : 0;
-    const lastKind  = lastEndedRank === 1 ? 1 : (lastEndedRank ? 0 : null);
-    if (lastKind === null || lastKind !== finalKind) {
-      lastEndedRank = officialRank;
-      sessionStorage.setItem('jen-end-rank-v4', String(officialRank));
-      if (officialRank !== 1) stopLeadingMode();
-      if (officialRank === 1) celebrateWin();
-      else                    celebrateParticipation(officialRank, latest.target_gifts);
+    stopLeadingMode();
+    const year = latestEndedYear(data);
+    const res  = year && resultFor(year, data);
+    if (res && Date.now() - eventWindow(year).end < CELEBRATE_AFTER_END_MS) {
+      const key  = 'jen-end-' + year;
+      const kind = res.finalRank === 1 ? 'win' : 'finish';
+      if (sessionStorage.getItem(key) !== kind) {
+        sessionStorage.setItem(key, kind);
+        playEndCelebration(res);
+      }
     }
   }
 }
@@ -1082,16 +1251,24 @@ async function fetchHistory() {
 }
 // Pull Stanford's live leaderboard directly (CORS is open). Returns a normalized
 // snapshot in the same shape as our history points + a top-10 leaderboard.
+// `point` is null when Jen can't be found — the leaderboard is still returned
+// so the page keeps showing Stanford's live standings.
 async function fetchStanfordLive() {
   const r = await fetch(STANFORD_API + '&t=' + Date.now());
   if (!r.ok) throw new Error('stanford ' + r.status);
   const j = await r.json();
   const ranked = (j.show_participants || []).filter(p => !p.hide)
                     .sort((a,b) => b.conversion - a.conversion);
-  const target = ranked.find(p => /varela/i.test(p.name));
   const leader = ranked[0], second = ranked[1];
-  if (!target || !leader) throw new Error('target/leader not found');
-  const rank = ranked.findIndex(p => /varela/i.test(p.name)) + 1;
+  if (!leader) throw new Error('leaderboard empty');
+  const leaderboard = ranked.slice(0, 10).map((p, i) => ({
+    rank: i + 1, name: p.name, id_string: p.id_string,
+    gifts: p.conversion,
+    campaign: p.campaign_name,
+    raised: parseFloat(p.amount_raised),
+  }));
+  const target = ranked.find(isTarget);
+  if (!target) return { point: null, leaderboard };
   return {
     point: {
       ts: new Date().toISOString(),
@@ -1101,19 +1278,27 @@ async function fetchStanfordLive() {
       second_gifts: second ? second.conversion : null,
       second_name:  second ? second.name       : null,
       delta:        leader.conversion - target.conversion,
-      target_rank:  rank,
+      target_rank:  ranked.indexOf(target) + 1,
     },
-    leaderboard: ranked.slice(0, 10).map((p, i) => ({
-      rank: i + 1, name: p.name,
-      gifts: p.conversion,
-      campaign: p.campaign_name,
-      raised: parseFloat(p.amount_raised),
-    })),
+    leaderboard,
   };
 }
 
 let lastHistory = { history: [], leaderboard: [] };
 let lastHistoryFetch = 0;
+
+// Every distinct reading this tab has pulled from Stanford during the live
+// event. The data branch only gets a point every 5+ min (Actions cron is
+// often late), so merging these in keeps the charts and rate truly live.
+const liveBuffer = [];
+function samePoint(a, b) {
+  return !!a && !!b && a.target_gifts === b.target_gifts && a.leader_gifts === b.leader_gifts &&
+         a.second_gifts === b.second_gifts && a.target_rank === b.target_rank;
+}
+function mergeHistory(stored, live) {
+  const all = [...stored, ...live].sort((a, b) => new Date(a.ts) - new Date(b.ts));
+  return all.filter((p, i) => i === 0 || !samePoint(p, all[i - 1]));
+}
 
 async function load() {
   const badge = document.getElementById('status-badge');
@@ -1129,18 +1314,15 @@ async function load() {
         catch (e) { console.warn('history fetch failed (continuing):', e); }
       }
       const live = await fetchStanfordLive();
-      // Append/replace a synthesized "now" point so the chart and cards
-      // show truly real-time data even when tracker/Actions are stale.
-      const merged = [...(lastHistory.history || [])];
-      // De-dup: if the last stored point already matches Stanford's current
-      // counts, don't append a new tail; otherwise add a synthetic point.
-      const last = merged[merged.length - 1];
-      if (!last || last.target_gifts !== live.point.target_gifts ||
-                   last.leader_gifts !== live.point.leader_gifts ||
-                   last.target_rank  !== live.point.target_rank) {
-        merged.push(live.point);
+      if (live.point && !samePoint(liveBuffer[liveBuffer.length - 1], live.point)) {
+        liveBuffer.push(live.point);
+        if (liveBuffer.length > 5000) liveBuffer.shift();
       }
-      data = { history: merged, leaderboard: live.leaderboard };
+      data = {
+        history:       mergeHistory(lastHistory.history || [], liveBuffer),
+        leaderboard:   live.leaderboard,
+        targetMissing: !live.point,
+      };
       badge.textContent = '● LIVE';
       badge.style.background = 'rgba(52,211,153,.25)';
     } else {
@@ -1222,12 +1404,14 @@ function currentEvent() {
 }
 // ╔══════════════════════════════════════════════════════════════════╗
 // ║ ANNUAL UPDATE CHECKLIST (Stanford rebuilds the microsite yearly)   ║
-// ║ When the new event goes live, run `python discover_ids.py` and:    ║
-// ║   1. Update STANFORD_API below (new entity_id + id)                ║
-// ║   2. Update MEDICINE_SECTION_ID below (donor-feed section)         ║
-// ║   3. After the event ends, add a YEAR_ARCHIVES entry               ║
-// ║ Jen is matched by name (/varela/i) — verify she's still listed     ║
-// ║ that way; discover_ids.py prints her current name + id_string.     ║
+// ║ When the new event goes live, run `python discover_ids.py` and     ║
+// ║ paste what it prints into index.html, fetch.py AND notify.py:      ║
+// ║   1. STANFORD_API / API_URL (new entity_id + id)                   ║
+// ║   2. MEDICINE_SECTION_ID (donor-feed section)                      ║
+// ║   3. TARGET_ID_STRING (Jen's ambassador id for the year)           ║
+// ║ No edit is needed after the event: the results card is derived     ║
+// ║ from the recorded data. Add a YEAR_ARCHIVES entry only to record   ║
+// ║ something the API can't show (an adjudicated tie, prize money).    ║
 // ║ The notify.yml workflow emails you if any of these break.          ║
 // ╚══════════════════════════════════════════════════════════════════╝
 const STANFORD_API = "https://dayofgiving.stanford.edu/ambassador_leaderboard/?entity_id=67217afd5aff7d247806bd0e&id=678773be4cf009577e8c454b&";
@@ -1292,10 +1476,10 @@ function renderDonors(donations) {
       : `<div class="dn-amount">$${Number(amt).toLocaleString()}</div>`;
     const newCls = (i === 0 && isNewTop) ? ' dn-new' : '';
     return `<li class="dn-item${newCls}">
-      <div class="dn-avatar">${initials(d.card_display_name)}</div>
+      <div class="dn-avatar">${esc(initials(d.card_display_name))}</div>
       <div class="dn-main">
-        <div class="dn-name">${name}</div>
-        <div class="dn-fund">${fund}</div>
+        <div class="dn-name">${esc(name)}</div>
+        <div class="dn-fund">${esc(fund)}</div>
       </div>
       <div class="dn-right">
         ${amtHtml}
@@ -1315,9 +1499,14 @@ async function refreshDonors() {
 }
 
 // ── YEAR ARCHIVES ──────────────────────────────────────────────────────
-// Each year's final summary is preserved here so the page can show year tabs.
-// When a new year's event ends, add a new entry here (or via the auto-archive
-// workflow). The "all-time raised" stat sums teamRaised across every year.
+// Hand-written final results. A year without an entry here gets its results
+// derived from the recorded data (see resultFor), so an entry is only needed
+// to record something Stanford's API can't show. The "all-time raised" stat
+// sums teamRaised across every year.
+//
+// 2026: Stanford reviewed the timestamps on last-minute gifts and announced
+// a TIE for #1 — both Jen and Drew are co-champions. This supersedes
+// whatever the live API shows, for 2026 only.
 const YEAR_ARCHIVES = {
   2026: {
     year: 2026,
@@ -1338,6 +1527,7 @@ const YEAR_ARCHIVES = {
     leaderName: "Drew Hutchins",
     leaderGifts: 467,
     closingTimeWinner: "Christie Yiasemis · 4:59:59.442 PM PT",
+    closingTimeNote: "4:59:59.442 PM PT — 0.558 sec before the deadline!",
     leaderboard: [
       { rank: 1, name: "Drew Hutchins",      campaign: "Stanford Athletics", gifts: 467, raised: 29766  },
       { rank: 1, name: "Jennifer Varela",    campaign: "Stanford Medicine",  gifts: 465, raised: 161651 },
@@ -1351,44 +1541,12 @@ const YEAR_ARCHIVES = {
       { rank: 10,name: "Eric Reveno",        campaign: "Stanford Athletics", gifts: 38,  raised: 25949  },
     ],
   },
-  // ─── Future years: at each event end, add a new entry here ───────────
-  // e.g.,  2027: { year: 2027, eventDates: "May 6–7, 2027", finalRank: ..., ... }
+  // ─── Future years: optional — see above ──────────────────────────────
 };
 
-// Returns selectable years in descending order — archives plus the current
-// year (when it's live). Tabs only show when this has 2+ entries.
-function getSelectableYears() {
-  const years = new Set(Object.keys(YEAR_ARCHIVES).map(Number));
-  const ev = currentEvent();
-  if (ev.isLive) years.add(ev.year);
-  return [...years].sort((a, b) => b - a);
-}
-
-// Active year is what the user is currently viewing. Defaults to the live
-// year when an event is running, otherwise the most recent archive.
-let activeYear = (() => {
-  const ev = currentEvent();
-  if (ev.isLive) return ev.year;
-  const archived = Object.keys(YEAR_ARCHIVES).map(Number).sort((a,b) => b - a);
-  return archived[0] || new Date().getUTCFullYear();
-})();
-
-// ── OFFICIAL 2026 RESULT OVERRIDE ──────────────────────────────────────
-// Stanford reviewed the timestamps on last-minute gifts and announced
-// a TIE for #1 — both Jen and Drew are co-champions. This supersedes
-// whatever the live API shows. Set to null to fall back to live data.
-const OFFICIAL_RESULT = {
-  year: 2026,
-  rank: 1,
-  tied: true,
-  tiedWith: "Drew Hutchins",
-  finalGifts: 465,
-  finalRaised: 161651,
-  prizeForCause: 25000,
-  closingTimeBonus: 5000,
-  cause: "Cutaneous Lymphoma Research Fund (Dr. Youn Kim)",
-  causeShort: "Cutaneous Lymphoma Research",
-};
+// Year the user picked from the tabs; null = default (the live year while an
+// event is running, otherwise the most recent finished year).
+let activeYear = null;
 
 function tickCountdown() {
   const now       = Date.now();

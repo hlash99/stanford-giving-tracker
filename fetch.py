@@ -15,6 +15,10 @@ API_URL     = ("https://dayofgiving.stanford.edu/ambassador_leaderboard/"
 HOME_URL    = "https://dayofgiving.stanford.edu/pages/home-2697"
 TARGET_NAME  = "Jen Varela"     # display only
 TARGET_MATCH = "varela"         # case-insensitive substring match on API name
+# Stanford's ambassador id for Jen this year (discover_ids.py prints it). When
+# set it wins over the name, which Stanford can change — in Oct 2026 her old
+# 465-gift listing was renamed "Joe Getschow". Keep in sync with index.html.
+TARGET_ID_STRING = ""
 DATA_FILE   = os.path.join(os.path.dirname(__file__), "data.json")
 
 # Browser-like headers — Stanford intermittently 403s plain/datacenter requests.
@@ -43,6 +47,11 @@ def robust_get(url, timeout=15, retries=4):
             last = e
             time.sleep(2 ** i)
     raise last
+
+def is_target(p):
+    if TARGET_ID_STRING and p.get("id_string"):
+        return p["id_string"] == TARGET_ID_STRING
+    return TARGET_MATCH in p["name"].lower()
 
 def fetch_site_totals():
     try:
@@ -73,14 +82,18 @@ def main():
     ranked = sorted([p for p in participants if not p.get("hide")],
                     key=lambda p: -p["conversion"])
 
-    target = next((p for p in ranked if TARGET_MATCH in p["name"].lower()), None)
+    target = next((p for p in ranked if is_target(p)), None)
     leader = ranked[0] if ranked else None
     second = ranked[1] if len(ranked) > 1 else None
 
     if not target or not leader:
-        # Off-season: Stanford's leaderboard may be empty/archived. Exit cleanly
-        # (success, no-op) so the scheduled workflow doesn't email a failure.
-        print("Target or leader not found in Stanford response — likely off-season. Skipping.")
+        # Off-season: Stanford's leaderboard may be empty/archived, or Jen's
+        # listing renamed. Exit cleanly (success, no-op) so the scheduled
+        # workflow doesn't email a failure — notify.py files an issue if she's
+        # missing in the run-up to the event. The ::warning:: line shows up as
+        # an annotation on the Actions run.
+        print(f"::warning::{TARGET_NAME} or leader not found in Stanford response "
+              "(off-season, or her listing changed). Skipping.")
         sys.exit(0)
 
     if os.path.exists(DATA_FILE):
@@ -99,9 +112,7 @@ def main():
             "second_gifts": second["conversion"] if second else None,
             "second_name":  second["name"]       if second else None,
             "delta":        leader["conversion"] - target["conversion"],
-            "target_rank":  next(
-                (i + 1 for i, p in enumerate(ranked) if TARGET_MATCH in p["name"].lower()), None
-            ),
+            "target_rank":  next((i + 1 for i, p in enumerate(ranked) if is_target(p)), None),
             "site_gifts":   totals["site_gifts"],
             "site_donors":  totals["site_donors"],
             "site_raised":  totals["site_raised"],
@@ -123,7 +134,7 @@ def main():
         data["history"].append(build_point())
 
     data["leaderboard"] = [
-        {"rank": i + 1, "name": p["name"],
+        {"rank": i + 1, "name": p["name"], "id_string": p.get("id_string"),
          "gifts": p["conversion"],
          "campaign": p["campaign_name"],
          "raised": float(p["amount_raised"])}
