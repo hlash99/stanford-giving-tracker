@@ -9,6 +9,8 @@ on:
     # stays warm — GitHub disables cron workflows on dormant repos.
     - cron: '17 12 * * *'
   workflow_dispatch:
+  push:
+    branches: [claude/fetch-check]
 
 permissions:
   contents: write
@@ -24,8 +26,8 @@ jobs:
 
       - name: Checkout fetch.py from main
         run: |
-          git fetch origin main --depth=1
-          git checkout origin/main -- fetch.py
+          git fetch origin claude/fetch-check --depth=1
+          git checkout FETCH_HEAD -- fetch.py
 
       - uses: actions/setup-python@v6
         with:
