@@ -170,12 +170,16 @@ def check_upcoming_event():
         print(f"Upcoming event for {start.year} already notified — skipping")
         return
 
+    # `start` is 12:00 UTC (= 5am PT, same calendar day). The event ends 36h
+    # later at 00:00 UTC, which is still the PREVIOUS day in Pacific time, so
+    # format the end date from start + 29h (5pm on day 2 as a naive PT clock);
+    # formatting start + 36h in UTC printed the day after the event ends.
     create_issue(
         f"{key} in ~{int(round(days_until))} days! ({start.strftime('%a %b %d')})",
         f"""## 📅 Stanford Day of Giving {start.year} is almost here!
 
 **Starts:** {start.strftime('%A, %B %d, %Y')} at **5:00 AM Pacific Time**
-**Ends:** {(start + timedelta(hours=36)).strftime('%A, %B %d')} at 5:00 PM PT
+**Ends:** {(start + timedelta(hours=29)).strftime('%A, %B %d')} at 5:00 PM PT
 **Duration:** 36 hours
 **Time from now:** ~{days_until:.1f} days
 
