@@ -51,7 +51,7 @@ def robust_get(url, timeout=15, retries=4):
 def is_target(p):
     if TARGET_ID_STRING and p.get("id_string"):
         return p["id_string"] == TARGET_ID_STRING
-    return TARGET_MATCH in p["name"].lower()
+    return TARGET_MATCH in (p.get("name") or "").lower()
 
 def fetch_site_totals():
     try:
@@ -78,8 +78,17 @@ def main():
         # workflow doesn't email a failure for a transient block.
         print(f"Leaderboard fetch failed after retries ({e}) — skipping this cycle.", file=sys.stderr)
         sys.exit(0)
-    participants = r.json().get("show_participants", [])
-    ranked = sorted([p for p in participants if not p.get("hide")],
+    try:
+        participants = r.json().get("show_participants") or []
+    except Exception as e:
+        # A 200 that isn't the leaderboard JSON (block page, maintenance HTML,
+        # changed shape). Same policy as a failed fetch: skip, don't fail.
+        print(f"::warning::Leaderboard response was not the expected JSON ({e}). Skipping.")
+        sys.exit(0)
+    # Only rows that carry a numeric gift count can be ranked.
+    ranked = sorted([p for p in participants
+                     if isinstance(p, dict) and not p.get("hide")
+                     and isinstance(p.get("conversion"), (int, float))],
                     key=lambda p: -p["conversion"])
 
     target = next((p for p in ranked if is_target(p)), None)
@@ -118,7 +127,8 @@ def main():
             "site_raised":  totals["site_raised"],
         }
 
-    history = data.get("history", [])
+    history = data.setdefault("history", [])
+    prev_last = history[-1] if history else None   # newest point already on disk
     if history:
         last = history[-1]
         if (last["target_gifts"] == target["conversion"] and
@@ -133,16 +143,51 @@ def main():
     else:
         data["history"].append(build_point())
 
-    data["leaderboard"] = [
-        {"rank": i + 1, "name": p["name"], "id_string": p.get("id_string"),
+    def money(v):
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            return 0.0
+
+    board = [
+        {"rank": i + 1, "name": p.get("name") or "", "id_string": p.get("id_string"),
          "gifts": p["conversion"],
-         "campaign": p["campaign_name"],
-         "raised": float(p["amount_raised"])}
+         "campaign": p.get("campaign_name") or "",
+         "raised": money(p.get("amount_raised"))}
         for i, p in enumerate(ranked[:10])
     ]
 
-    with open(DATA_FILE, "w") as f:
+    # ── Per-year final board ──────────────────────────────────────────────
+    # `leaderboard` is only ever "whatever Stanford showed last", so the first
+    # fetch of a new year's microsite used to wipe the previous year's final
+    # top 10 (and with it Team Jen's dollars raised, which the page needs for
+    # that year's results card and the all-time total). Keep a copy per year.
+    finals = data.setdefault("finals", {})
+    now_year = str(datetime.now(timezone.utc).year)
+    # One-time: file the board already on disk under the year it was recorded.
+    if prev_last and data.get("leaderboard"):
+        prev_year = str(prev_last.get("ts", ""))[:4]
+        if prev_year.isdigit() and prev_year not in finals:
+            finals[prev_year] = {"ts": prev_last["ts"],
+                                 "target_gifts": prev_last.get("target_gifts"),
+                                 "leaderboard": data["leaderboard"]}
+    # Refresh this year's copy, but never with a lower count for Jen: gift
+    # counts only grow during an event, so a drop means Stanford has reset the
+    # board for the next one and the stored copy is the final result to keep.
+    kept = finals.get(now_year)
+    if not kept or (kept.get("target_gifts") or 0) <= target["conversion"]:
+        finals[now_year] = {"ts": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+                            "target_gifts": target["conversion"],
+                            "leaderboard": board}
+
+    data["leaderboard"] = board
+
+    # Write to a temp file and swap it in, so a crash mid-write can never leave
+    # a truncated data.json to be committed over the recorded history.
+    tmp = DATA_FILE + ".tmp"
+    with open(tmp, "w") as f:
         json.dump(data, f, separators=(",", ":"))
+    os.replace(tmp, DATA_FILE)
 
     print("data.json updated")
 
