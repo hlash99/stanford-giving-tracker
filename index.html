@@ -312,6 +312,21 @@ header .sub{opacity:.85}
 .results-stat{transition:transform .25s,border-color .25s}
 .results-stat:hover{transform:translateY(-2px);border-color:rgba(251,191,36,.4)}
 
+/* finish medallion + highlight chips — shown for ANY finish, not just a win */
+.results-medal{font-size:0;line-height:0;margin-bottom:10px}
+.results-medal svg{width:104px;height:auto;overflow:visible}
+.medal-shine{animation:medalShine 4.5s ease-in-out infinite}
+@keyframes medalShine{0%,55%{transform:translateX(-70px) skewX(-20deg)}100%{transform:translateX(190px) skewX(-20deg)}}
+.medal-spark{transform-box:fill-box;transform-origin:center;animation:sparkle 2.4s ease-in-out infinite}
+.medal-spark.s2{animation-delay:.8s}.medal-spark.s3{animation-delay:1.6s}
+@keyframes sparkle{0%,100%{transform:scale(.2) rotate(0);opacity:0}50%{transform:scale(1) rotate(45deg);opacity:1}}
+.results-chips{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px}
+.results-chips:empty{display:none}
+.r-chip{padding:7px 13px;border-radius:999px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.13);
+  font-size:.8rem;color:#e8eaf0;animation:rowIn .5s cubic-bezier(.2,.8,.2,1) both;animation-delay:calc(var(--i)*90ms + 200ms)}
+.r-chip b{color:#fde68a;font-weight:700}
+@media(max-width:600px){.results-medal svg{width:88px}}
+
 /* next-up strip (off-season) */
 .nextup[hidden]{display:none!important}
 .nextup{display:flex;align-items:center;gap:14px;margin-bottom:18px;padding:14px 18px;border-radius:14px;
@@ -406,6 +421,7 @@ footer,footer a,#last-fetch{color:#7c8299}
   .lb-row{grid-template-columns:28px minmax(0,1fr) auto;gap:9px;padding:8px 10px 8px 8px}
   .lb-raised{display:none}
   .nextup{padding:12px 14px;gap:10px}.nu-pct b{font-size:1.2rem}
+  .nu-pct{max-width:64px}.nu-pct span{display:block;line-height:1.3;margin-top:3px}
   .chart-wrap{height:180px}
   .chart-box h2 span{float:none;display:block;margin-top:4px}
 }
@@ -507,6 +523,8 @@ footer,footer a,#last-fetch{color:#7c8299}
       <div class="results-stat"><div class="v" id="r-gap">—</div><div class="l" id="r-gap-l">Gap to #1</div></div>
       <div class="results-stat"><div class="v" id="r-site-raised">—</div><div class="l">Team Jen raised</div></div>
     </div>
+
+    <div class="results-chips" id="r-chips"></div>
 
     <div class="results-thanks" id="r-thanks">—</div>
     <div class="results-signoff">See you next year! 💙</div>
@@ -1349,7 +1367,69 @@ function renderNextUp(ev, data) {
 }
 
 // Persistent final-results card for a finished year.
-function renderResults(arch, latest, viewYear) {
+function medallionSVG(label, sub, tier) {
+  const [lite, mid, dark, ink] = {
+    gold:   ['#fef3c7', '#fbbf24', '#b45309', '#451a03'],
+    silver: ['#f8fafc', '#cbd5e1', '#64748b', '#0f172a'],
+    bronze: ['#fde0c2', '#d97706', '#7c2d12', '#431407'],
+    blue:   ['#dbeafe', '#60a5fa', '#1d4ed8', '#172554'],
+  }[tier];
+  const star = 'M0-7L2-2L7 0L2 2L0 7L-2 2L-7 0L-2-2Z';
+  return `<svg viewBox="0 0 120 142" role="img" aria-label="Finished ${esc(label)}">
+    <defs>
+      <linearGradient id="medal-g" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0" stop-color="${lite}"/><stop offset=".55" stop-color="${mid}"/><stop offset="1" stop-color="${dark}"/>
+      </linearGradient>
+      <clipPath id="medal-c"><circle cx="60" cy="54" r="46"/></clipPath>
+    </defs>
+    <polygon points="36,80 20,138 41,126 56,140 62,86" fill="#8c1515"/>
+    <polygon points="84,80 100,138 79,126 64,140 58,86" fill="#b91c1c"/>
+    <circle cx="60" cy="54" r="46" fill="url(#medal-g)" stroke="${dark}" stroke-width="2"/>
+    <circle cx="60" cy="54" r="41" fill="none" stroke="${lite}" stroke-width="3" stroke-dasharray="2 5" opacity=".75"/>
+    <circle cx="60" cy="54" r="34" fill="none" stroke="${dark}" stroke-width="1.5" opacity=".4"/>
+    <text x="60" y="62" text-anchor="middle" font-family="'Archivo Black',system-ui,sans-serif"
+          font-size="${label.length > 2 ? 22 : 28}" fill="${ink}">${esc(label)}</text>
+    <text x="60" y="76" text-anchor="middle" font-family="Inter,system-ui,sans-serif" font-weight="800"
+          font-size="7" letter-spacing="1.5" fill="${ink}" opacity=".75">${esc(sub)}</text>
+    <g clip-path="url(#medal-c)"><rect class="medal-shine" x="-30" y="0" width="26" height="110" fill="#fff" opacity=".5"/></g>
+    <g transform="translate(106 16)"><path class="medal-spark" d="${star}" fill="#fff"/></g>
+    <g transform="translate(10 34)"><path class="medal-spark s2" d="${star}" fill="${lite}"/></g>
+    <g transform="translate(104 92) scale(.7)"><path class="medal-spark s3" d="${star}" fill="#fff"/></g>
+  </svg>`;
+}
+
+// Things worth cheering whatever the final rank: the comeback, the climb, the
+// best hour, and how the year compares with the one before. Each is computed
+// from the recorded race, and a chip only appears when its fact is true.
+function finishHighlights(arch, latest, viewYear, h, data, years) {
+  const out  = [];
+  const tied = !!arch.tied, won = arch.finalRank === 1;
+  const pts  = h.filter(p => p.target_gifts != null);
+  const maxGap = Math.max(0, ...pts.map(p => p.delta || 0));
+  const endGap = (tied || won) ? 0 : Math.max(0, latest.delta || 0);
+  if (maxGap > endGap && maxGap >= 5) out.push((tied || won)
+    ? `💪 Came back from <b>${maxGap} gifts</b> down`
+    : `💪 Cut the gap to #1 from <b>${maxGap}</b> to <b>${endGap}</b>`);
+  const worst = Math.max(0, ...pts.map(p => p.target_rank || 0));
+  if (worst > arch.finalRank) out.push(
+    `🚀 Climbed from <b>#${worst}</b> to <b>${tied ? 'a tie for #1' : '#' + arch.finalRank}</b>`);
+  const mo = hourlyGifts(h);
+  if (mo) {
+    const best = Math.max(...mo.jen);
+    if (best > 0) out.push(`⚡ Best hour: <b>${best} gifts</b>`);
+  }
+  const priorYear = years.find(y => y < viewYear && resultFor(y, data));
+  const prior     = priorYear ? resultFor(priorYear, data) : null;
+  if (prior) {
+    const dg = latest.target_gifts - prior.finalGifts;
+    if (dg > 0) out.push(`📈 <b>+${dg} gifts</b> vs ${priorYear}`);
+    const dr = (arch.teamRaised != null && prior.teamRaised != null) ? arch.teamRaised - prior.teamRaised : 0;
+    if (dr > 0) out.push(`💰 <b>+${fmtMoney(dr)}</b> raised vs ${priorYear}`);
+  }
+  return out;
+}
+
+function renderResults(arch, latest, viewYear, h, data, years) {
   const resEl = document.getElementById('results');
   resEl.hidden = !arch;
   if (!arch) return;
@@ -1368,8 +1448,15 @@ function renderResults(arch, latest, viewYear) {
   const runnerUp   = latest.second_name || '#2';
   const margin     = latest.second_gifts != null ? latest.target_gifts - latest.second_gifts : null;
 
-  document.getElementById('r-medal').textContent =
-    (tied || isWin) ? '🏆' : (r === 2 ? '🥈' : r === 3 ? '🥉' : '💙');
+  // A medallion for every finish: gold for #1 (or a tie for it), silver, bronze,
+  // and a blue Team Jen medal for anything else — there is always one.
+  document.getElementById('r-medal').innerHTML = medallionSVG(
+    (tied || isWin) ? '#1' : '#' + r,
+    (tied ? 'TIED · ' : '') + viewYear,
+    (tied || isWin) ? 'gold' : r === 2 ? 'silver' : r === 3 ? 'bronze' : 'blue');
+  document.getElementById('r-chips').innerHTML =
+    finishHighlights(arch, latest, viewYear, h || [], data, years || [])
+      .map((c, i) => `<span class="r-chip" style="--i:${i}">${c}</span>`).join('');
 
   document.getElementById('r-headline').textContent =
     tied   ? 'TIE FOR #1!'
@@ -1480,7 +1567,7 @@ function updateUI(data) {
   renderNotice(isLiveYearView && data.targetMissing);
   renderLeaderboard(lb, arch, viewYear + (arch ? '-final' : '-live'));
   renderNextUp(ev, data);
-  renderResults(arch, latest, viewYear);
+  renderResults(arch, latest, viewYear, h, data, years);
 
   if (!h.length) {
     document.getElementById('milestone').hidden = true;
@@ -1794,8 +1881,8 @@ function celebrateWin(res, motion = !REDUCED_MOTION.matches) {
 }
 
 function celebrateParticipation(finalRank, finalGifts, motion = !REDUCED_MOTION.matches) {
-  showBanner('💙',
-    'THANK YOU, TEAM JEN!',
+  showBanner(finalRank === 2 ? '🥈' : finalRank === 3 ? '🥉' : '💙',
+    finalRank <= 3 ? `JEN FINISHED #${finalRank}!` : 'THANK YOU, TEAM JEN!',
     `Finished #${finalRank} with ${finalGifts} gifts — every one made a difference.`,
     'thanks', 0);
   if (!motion) return;
