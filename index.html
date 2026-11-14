@@ -382,6 +382,21 @@ header .sub{opacity:.85}
 .race.replaying .race-scrub{visibility:visible}
 .race-scrub i{display:block;height:100%;width:0;background:linear-gradient(90deg,#60a5fa,#fbbf24)}
 
+/* race close-up — a magnified slice of the track when the counts are close */
+.closeup[hidden]{display:none!important}
+.closeup{margin-top:14px;padding:12px 16px 26px;border-radius:12px;background:#0b0d14;border:1px dashed #33384f;animation:rowIn .5s both}
+.cu-head{font-size:.68rem;text-transform:uppercase;letter-spacing:1px;color:var(--mute)}
+.cu-head b{color:#fde68a}
+.cu-axis{position:relative;height:66px;margin:0 22px;border-bottom:2px solid #33384f}
+.cu-tick{position:absolute;bottom:-2px;width:1px;height:7px;background:#4a5070}
+.cu-tick span{position:absolute;top:11px;left:0;transform:translateX(-50%);font-size:.62rem;color:#7c8299;font-variant-numeric:tabular-nums}
+.cu-dot{position:absolute;bottom:-9px;width:16px;height:16px;margin-left:-8px;border-radius:50%;background:var(--c);
+  border:2px solid #0b0d14;box-shadow:0 0 14px var(--c)}
+.cu-dot::before{content:"";position:absolute;left:50%;bottom:14px;width:1px;height:var(--stem);background:var(--c);opacity:.5}
+.cu-dot span{position:absolute;left:50%;bottom:calc(var(--stem) + 14px);transform:translateX(-50%);white-space:nowrap;
+  font-family:var(--display);font-size:.8rem;color:var(--c)}
+.cu-dot.jen{--c:var(--jen)}.cu-dot.leader{--c:var(--ldr)}.cu-dot.second{--c:var(--sec)}
+
 /* leaderboard → bar rows */
 .lb-rows{display:flex;flex-direction:column;gap:6px}
 .lb-row{position:relative;overflow:hidden;display:grid;grid-template-columns:30px minmax(0,1fr) auto 92px;gap:12px;align-items:center;
@@ -560,6 +575,10 @@ footer,footer a,#last-fetch{color:#7c8299}
       <button class="race-btn" id="race-replay" type="button" hidden>▶ Replay the race</button>
     </div>
     <div class="race-lanes" id="race-lanes"></div>
+    <div class="closeup" id="closeup" hidden>
+      <div class="cu-head" id="cu-head"></div>
+      <div class="cu-axis" id="cu-axis"></div>
+    </div>
     <div class="race-note" id="race-note"></div>
     <div class="race-scrub"><i id="race-scrub"></i></div>
   </div>
@@ -599,11 +618,11 @@ footer,footer a,#last-fetch{color:#7c8299}
 
   <div class="charts">
     <div class="chart-box">
-      <h2>Gap over time — gifts behind #1</h2>
+      <h2>Gap over time — gifts behind #1 <span class="zoom-note"></span></h2>
       <canvas id="gapChart"></canvas>
     </div>
     <div class="chart-box">
-      <h2>Absolute gift counts</h2>
+      <h2>Absolute gift counts <span class="zoom-note"></span></h2>
       <canvas id="absChart"></canvas>
     </div>
     <div class="chart-box wide" id="mo-box" hidden>
@@ -775,7 +794,53 @@ function ghostSeries(history, priorYear, viewYear, prior) {
 
 let moChart, _chartFull = null;
 
-function buildCharts(history, ghost) {
+// Chart window. The two line charts show the whole race until BOTH things are
+// true: the deadline is getting near and the race is close (Jen within
+// ZOOM_GAP gifts of #1, or leading #2 by that little). Then they crop to a
+// recent slice — shorter as time runs out — and the y-axis is refitted to Jen
+// and the rival she is fighting, so a few gifts of daylight fill the chart.
+// Once the event is over they show everything again.
+const ZOOM_GAP = 25;
+function zoomMinutes(isLive, msLeft, closeness) {
+  if (!isLive || closeness == null || closeness > ZOOM_GAP) return null;
+  if (msLeft <= 30 * 60000)  return 30;
+  if (msLeft <= 2 * 3600000) return 120;
+  if (msLeft <= 6 * 3600000) return 360;
+  return null;
+}
+
+// Race close-up: when Jen and her nearest rival are within a few gifts the
+// full-length lanes can't show it, so magnify just that slice of the track.
+function renderCloseUp(lanes) {
+  const el  = document.getElementById('closeup');
+  const jen = lanes.find(l => l.key === 'jen');
+  const rivals = lanes.filter(l => l.key !== 'jen');
+  if (!jen || !rivals.length) { el.hidden = true; return; }
+  const near = rivals.reduce((a, b) => Math.abs(b.gifts - jen.gifts) < Math.abs(a.gifts - jen.gifts) ? b : a);
+  const d    = Math.abs(near.gifts - jen.gifts);
+  const top  = Math.max(...lanes.map(l => l.gifts), 1);
+  if (d > Math.max(8, top * .04)) { el.hidden = true; return; }
+  const lo = Math.min(jen.gifts, near.gifts), hi = Math.max(jen.gifts, near.gifts);
+  const pad = Math.max(2, Math.ceil(d * .5));
+  const a0 = lo - pad, a1 = hi + pad, span = a1 - a0;
+  const pos = g => ((g - a0) / span * 100).toFixed(2) + '%';
+  const step = span <= 14 ? 1 : span <= 30 ? 2 : 5;
+  let html = '';
+  for (let g = Math.ceil(a0 / step) * step; g <= a1; g += step)
+    html += `<i class="cu-tick" style="left:${pos(g)}"><span>${g}</span></i>`;
+  // Tallest label for the trailing runner so close labels don't sit on top of each other
+  lanes.filter(l => l.gifts >= a0 && l.gifts <= a1).sort((a, b) => a.gifts - b.gifts).forEach((l, i) => {
+    html += `<i class="cu-dot ${l.key}" style="left:${pos(l.gifts)};--stem:${4 + (i % 2) * 20}px">` +
+            `<span>${esc(l.name.replace(' ⭐', '').split(' ')[0])} ${l.gifts}</span></i>`;
+  });
+  el.hidden = false;
+  document.getElementById('cu-axis').innerHTML = html;
+  document.getElementById('cu-head').innerHTML = '🔍 Close-up · ' + (d === 0
+    ? '<b>dead level</b>'
+    : `<b>${d} gift${d === 1 ? '' : 's'}</b> between Jen and ${esc(near.name)}`);
+}
+
+function buildCharts(history, ghost, zoomFrom, zoomTo, rival) {
   const labels   = history.map(p => new Date(p.ts));
   const gaps     = history.map(p => p.delta);
   const jenVals  = history.map(p => p.target_gifts);
@@ -783,15 +848,33 @@ function buildCharts(history, ghost) {
   const secVals  = history.map(p => (p.second_gifts == null ? null : p.second_gifts));
   const latestPt = history[history.length - 1] || {};
   const secName  = latestPt.second_name || '#2';
-  const sparse   = history.length > 80;
   const hasSecond = secVals.some(v => v != null);
+
+  // Zoom: show only [zoomFrom, zoomTo] and fit the y-axes to what is visible
+  // in that window, so a 2-gift gap isn't flattened by the whole race's scale.
+  const zoomed = zoomFrom != null && labels.length > 1 && zoomFrom > labels[0].getTime();
+  let first = 0;
+  if (zoomed) {
+    first = labels.findIndex(d => d.getTime() >= zoomFrom);
+    first = Math.max(0, (first < 0 ? labels.length : first) - 1);   // keep the point the line enters from
+  }
+  const visRange = arr => {
+    let lo = Infinity, hi = -Infinity;
+    for (let i = first; i < arr.length; i++) {
+      if (arr[i] == null) continue;
+      lo = Math.min(lo, arr[i]); hi = Math.max(hi, arr[i]);
+    }
+    return [lo, hi];
+  };
+  const sparse = (labels.length - first) > 80;
 
   const xAxis = {
     type: 'time',
     // The event spans two days, so a bare HH:mm is ambiguous — include the weekday.
     time: { unit: 'minute', tooltipFormat: 'EEE MMM d, HH:mm', displayFormats: { minute: 'EEE HH:mm' } },
     ticks: { font: { size: 10 }, maxTicksLimit: 7, color: '#7c8299' },
-    grid: { color: 'rgba(255,255,255,.04)' }
+    grid: { color: 'rgba(255,255,255,.04)' },
+    ...(zoomed ? { min: zoomFrom, max: zoomTo } : {})
   };
   const yBase = { ticks: { font: { size: 10 }, color: '#7c8299' }, grid: { color: 'rgba(255,255,255,.05)' } };
   const line  = { tension: .35, pointRadius: sparse ? 0 : 3, pointHoverRadius: 5, borderWidth: 2.5 };
@@ -809,10 +892,12 @@ function buildCharts(history, ghost) {
     backgroundColor: vGrad('#f59e0b', .34, 0),
     fill: true, glow: 12, endDot: true
   }];
+  let gapHi = visRange(gaps)[1];
   if (hasSecond) {
     const gapsToSecond = history.map(p =>
       (p.second_gifts == null) ? null : Math.max(0, p.second_gifts - p.target_gifts)
     );
+    gapHi = Math.max(gapHi, visRange(gapsToSecond)[1]);
     gapDatasets.push({
       ...line,
       label: 'Gap to #2',
@@ -836,7 +921,8 @@ function buildCharts(history, ghost) {
         legend: { display: hasSecond, labels: { font: { size: 10 }, boxWidth: 10, color: '#8a90a6' } },
         tooltip: { ...TOOLTIP, callbacks: { label: c => ` ${c.dataset.label}: ${c.raw} gifts` } }
       },
-      scales: { x: xAxis, y: { ...yBase, min: 0, title: { display: true, text: 'gifts behind', font: { size: 10 }, color: '#7c8299' } } }
+      scales: { x: xAxis, y: { ...yBase, min: 0, ...(zoomed && isFinite(gapHi) ? { max: Math.max(4, Math.ceil(gapHi * 1.15) + 1) } : {}),
+                          title: { display: true, text: 'gifts behind', font: { size: 10 }, color: '#7c8299' } } }
     }
   });
 
@@ -879,6 +965,17 @@ function buildCharts(history, ghost) {
     });
   }
 
+  let absY = {};
+  if (zoomed) {
+    // Fit to Jen and the one line she is racing; a distant third may run off the top or bottom.
+    const r  = [jenVals, rival === 'second' ? secVals : ldrVals].map(visRange);
+    const lo = Math.min(...r.map(x => x[0])), hi = Math.max(...r.map(x => x[1]));
+    if (isFinite(lo) && isFinite(hi)) {
+      const pad = Math.max(2, (hi - lo) * .1);
+      absY = { min: Math.max(0, Math.floor(lo - pad)), max: Math.ceil(hi + pad) };
+    }
+  }
+
   if (absChart) absChart.destroy();
   absChart = new Chart(document.getElementById('absChart'), {
     type: 'line',
@@ -890,7 +987,7 @@ function buildCharts(history, ghost) {
         legend: { labels: { font: { size: 10 }, boxWidth: 10, color: '#8a90a6' } },
         tooltip: { ...TOOLTIP, filter: item => !item.dataset.ghost }
       },
-      scales: { x: xAxis, y: { ...yBase, title: { display: true, text: 'total gifts', font: { size: 10 }, color: '#7c8299' } } }
+      scales: { x: xAxis, y: { ...yBase, ...absY, title: { display: true, text: 'total gifts', font: { size: 10 }, color: '#7c8299' } } }
     }
   });
 
@@ -1267,6 +1364,7 @@ function renderRace(pt, arch, opts = {}) {
     row.querySelector('.lane-fill').style.width       = Math.min(100, l.gifts / scale * 100).toFixed(2) + '%';
     row.querySelector('.lane-count').textContent      = l.gifts;
   });
+  renderCloseUp(lanes);
   wrap.classList.toggle('has-mark', !!mark);
   if (mark) wrap.style.setProperty('--mark', Math.min(100, mark.gifts / scale * 100).toFixed(2) + '%');
   document.getElementById('race-note').textContent = mark
@@ -1759,7 +1857,14 @@ function updateUI(data) {
   }
 
   // Charts
-  buildCharts(h, ghost);
+  const jenAhead  = latest.target_rank === 1 && latest.second_gifts != null;
+  const closeness = jenAhead ? latest.target_gifts - latest.second_gifts
+                  : latest.target_rank === 1 ? null : latest.delta;
+  const zoomMins  = zoomMinutes(isLiveYearView, isLiveYearView ? ev.end - Date.now() : 0, closeness);
+  document.querySelectorAll('.zoom-note').forEach(n => {
+    n.textContent = zoomMins ? `🔍 last ${zoomMins >= 60 ? zoomMins / 60 + ' hours' : zoomMins + ' min'}` : '';
+  });
+  buildCharts(h, ghost, zoomMins ? anchor - zoomMins * 60000 : null, anchor, jenAhead ? 'second' : 'leader');
 
   // Celebrations — live rank changes only count when looking at the live year
   // and Jen's numbers are actually current.
